@@ -77,7 +77,7 @@ if uploaded_file is not None:
 
         salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 210)]
         salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum()
-        valor_max_emeac = salidas_filtradas["EMEAC"].max()
+        valor_max_emeac = 8.210732682
         salidas_filtradas["EMEAC(%)"] = (salidas_filtradas["EMEAC"] / valor_max_emeac) * 100
 
         # --- Gráfico EMERREL ---
