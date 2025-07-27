@@ -28,7 +28,7 @@ class PracticalANNModel:
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
         emerrel_cumsum = np.cumsum(emerrel_desnorm)
-      # emer_ac = emerrel_cumsum /8.2 
+        emer_ac = emerrel_cumsum /8.2 
         emerrel_diff = np.diff(emer_ac, prepend=0)
 
         def clasificar(valor):
@@ -91,7 +91,7 @@ if uploaded_file is not None:
         ax.set_title("Emergencia Relativa 2025")
         ax.grid(True, linestyle='--', alpha=0.5)
         legend_labels = [plt.Line2D([0], [0], color=color, lw=4, label=label) for label, color in color_map.items()]
-        ax.legend(handles=legend_labels, title="Riesgo")
+        ax.legend(handles=legend_labels, title="Niveles")
         st.pyplot(fig)
 
         # --- Gráfico EMEAC(%) ---
