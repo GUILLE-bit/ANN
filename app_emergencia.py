@@ -84,7 +84,7 @@ if uploaded_file is not None:
         st.subheader("Emergencia Relativa Diaria (EMERREL(0-1))")
         fig, ax = plt.subplots(figsize=(10, 4))
         color_map = {"Bajo": "green", "Medio": "orange", "Alto": "red"}
-        colors = salidas_filtradas["Riesgo_Emergencia"].map(color_map)
+        colors = salidas_filtradas["Nivel_Emergencia_relativa"].map(color_map)
         ax.bar(salidas_filtradas["Fecha"], salidas_filtradas["EMERREL(0-1)"], color=colors)
         ax.set_xlabel("Fecha")
         ax.set_ylabel("EMERREL(0-1)")
