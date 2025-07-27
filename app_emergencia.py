@@ -107,7 +107,7 @@ if uploaded_file is not None:
         ax_emeac.set_title("Acumulado porcentual de Emergencia - 2025")
         ax_emeac.grid(True, linestyle="--", alpha=0.5)
         ax_emeac.set_ylim(0, 105)
-        ax_emeac.xaxis.set_major_locator(mdates.DayLocator(interval=15))
+        ax_emeac.xaxis.set_major_locator(mdates.DayLocator(interval=30))
         ax_emeac.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b'))
         ax_emeac.legend(title="Niveles de EMEAC")
         st.pyplot(fig_emeac)
