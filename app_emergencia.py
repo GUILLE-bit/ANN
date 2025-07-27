@@ -27,9 +27,9 @@ class PracticalANNModel:
         X_norm = self.normalize_input(X_real)
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
-        emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        emer_ac = emerrel_cumsum /8.2 
-        emerrel_diff = np.diff(emer_ac, prepend=0)
+        #emerrel_cumsum = np.cumsum(emerrel_desnorm)
+        #emer_ac = emerrel_cumsum /8.2 
+        #emerrel_diff = np.diff(emer_ac, prepend=0)
 
         def clasificar(valor):
             if valor < 0.02:
@@ -77,7 +77,7 @@ if uploaded_file is not None:
 
         salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)]
         salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum()/8.21
-        #valor_max_emeac = 8.21
+        valor_max_emeac = 8.21
         salidas_filtradas["EMEAC(%)"] = (salidas_filtradas["EMEAC"] * 100) * 3
 
         # --- Gráfico EMERREL ---
