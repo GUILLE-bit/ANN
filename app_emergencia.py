@@ -43,7 +43,7 @@ class PracticalANNModel:
 
         return pd.DataFrame({
             "EMERREL(0-1)": emerrel_diff,
-            "Riesgo_Emergencia": riesgo
+            "Nivel_Emergencia_relativa": riesgo
         })
 
     def _predict_single(self, x_norm):
