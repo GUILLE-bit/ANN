@@ -27,9 +27,9 @@ class PracticalANNModel:
         X_norm = self.normalize_input(X_real)
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
-        #emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        #emer_ac = emerrel_cumsum /8.2 
-        #emerrel_diff = np.diff(emer_ac, prepend=0)
+        emerrel_cumsum = np.cumsum(emerrel_desnorm)
+        emer_ac = emerrel_cumsum /1
+        emerrel_diff = np.diff(emer_ac, prepend=0)
 
         def clasificar(valor):
             if valor < 0.02:
