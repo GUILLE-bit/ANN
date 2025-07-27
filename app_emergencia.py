@@ -75,7 +75,7 @@ if uploaded_file is not None:
         salidas["Fecha"] = fechas
         salidas = pd.concat([df["Julian_days"], salidas], axis=1)
 
-        salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 210)]
+        salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)]
         salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum()
         valor_max_emeac = 8.21
         salidas_filtradas["EMEAC(%)"] = ((salidas_filtradas["EMEAC"]/ valor_max_emeac) * 100) * 3
