@@ -3,6 +3,7 @@ import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
 import os
+from pathlib import Path
 
 # --- Modelo ANN ---
 class PracticalANNModel:
@@ -28,7 +29,7 @@ class PracticalANNModel:
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
         emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        valor_max_emeac = 8.21
+        valor_max_emeac = 8.0
         emer_ac = (emerrel_cumsum / valor_max_emeac)
         emerrel_diff = np.diff(emer_ac, prepend=0)
 
@@ -56,16 +57,16 @@ class PracticalANNModel:
 # --- Interfaz Streamlit ---
 st.title("Predicción de Emergencia - Modelo ANN")
 
-uploaded_file = st.file_uploader("Cargar archivo Excel con datos (2025)", type=["xlsx"])
+uploaded_file = st.file_uploader("2025.xlsx", type=["xlsx"])
 
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
     if all(col in df.columns for col in ["Julian_days", "TMAX", "TMIN", "Prec"]):
-        base = os.path.dirname(__file__)
-        IW = np.load(os.path.join(base, "IW.npy"))
-        bias_IW = np.load(os.path.join(base, "bias_IW.npy"))
-        LW = np.load(os.path.join(base, "LW.npy"))
-        bias_out = np.load(os.path.join(base, "bias_out.npy"))
+        base = Path(__file__).parent
+        IW = np.load(base / "IW.npy")
+        bias_IW = np.load(base / "bias_IW.npy")
+        LW = np.load(base / "LW.npy")
+        bias_out = np.load(base / "bias_out.npy")
 
         modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
@@ -76,10 +77,15 @@ if uploaded_file is not None:
         salidas["Fecha"] = fechas
         salidas = pd.concat([df["Julian_days"], salidas], axis=1)
 
-        salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)]
+        # --- Filtrar datos del año agrícola y calcular EMEAC ---
+        salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)].copy()
         valor_max_emeac = 8.21
-        salidas_filtradas["EMEAC"] = (salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac)
-        salidas_filtradas["EMEAC(%)"] = (salidas_filtradas["EMEAC"] * 100) * 3.1
+        salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac
+
+        # Calcular factor de escalado dinámico
+        acumulado_final = salidas_filtradas["EMERREL(0-1)"].cumsum().iloc[-1]
+        escalado_factor = 100 / (acumulado_final / valor_max_emeac)
+        salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * escalado_factor
 
         # --- Gráfico EMERREL ---
         st.subheader("Emergencia Relativa Diaria (EMERREL(0-1))")
