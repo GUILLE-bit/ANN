@@ -79,7 +79,7 @@ if uploaded_file is not None:
         salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)]
         valor_max_emeac = 8.05
         salidas_filtradas["EMEAC"] = (salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac)
-        salidas_filtradas["EMEAC(%)"] = (salidas_filtradas["EMEAC"])
+        salidas_filtradas["EMEAC(%)"] = (salidas_filtradas["EMEAC"] * 100) * 3
 
         # --- Gráfico EMERREL ---
         st.subheader("Emergencia Relativa Diaria (EMERREL(0-1))")
@@ -107,7 +107,7 @@ if uploaded_file is not None:
         ax_emeac.set_ylabel("EMEAC (%)")
         ax_emeac.set_title("Acumulado porcentual de Emergencia - 2025")
         ax_emeac.grid(True, linestyle="--", alpha=0.5)
-        ax_emeac.set_ylim(0, 1)
+        ax_emeac.set_ylim(0, 100)
         ax_emeac.xaxis.set_major_locator(mdates.DayLocator(interval=30))
         ax_emeac.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b'))
         ax_emeac.legend(title="Niveles de EMEAC")
