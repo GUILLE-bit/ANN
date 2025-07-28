@@ -28,7 +28,7 @@ class PracticalANNModel:
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
         emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        valor_max_emeac = 8.21
+        valor_max_emeac = 8.05
         emer_ac = (emerrel_cumsum / valor_max_emeac)
         emerrel_diff = np.diff(emer_ac, prepend=0)
 
@@ -77,7 +77,7 @@ if uploaded_file is not None:
         salidas = pd.concat([df["Julian_days"], salidas], axis=1)
 
         salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)]
-        valor_max_emeac = 8.21
+        valor_max_emeac = 8.05
         salidas_filtradas["EMEAC"] = (salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac)
         salidas_filtradas["EMEAC(%)"] = (salidas_filtradas["EMEAC"] * 100) * 3
 
