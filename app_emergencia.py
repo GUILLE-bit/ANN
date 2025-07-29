@@ -28,7 +28,7 @@ class PracticalANNModel:
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
         emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        valor_max_emeac = 8.05
+        valor_max_emeac = 2.77
         emer_ac = emerrel_cumsum / valor_max_emeac
         emerrel_diff = np.diff(emer_ac, prepend=0)
 
@@ -82,7 +82,7 @@ if uploaded_file is not None:
 
         # --- Filtrar datos del año agrícola ---
         salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)].copy()
-        valor_max_emeac = 8.05
+        valor_max_emeac = 2.77
         salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac
 
         # --- Calcular EMEAC(%) sin escalado forzado ---
