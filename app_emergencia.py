@@ -168,8 +168,10 @@ if uploaded_files:
 
         # Mostrar tabla
         st.subheader(f"Datos calculados - {nombre}")
-        st.dataframe(pred)
-        csv = pred.to_csv(index=False).encode("utf-8")
+        # Filtrar columnas deseadas
+        tabla_filtrada = pred[["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%)"]]
+        st.dataframe(tabla_filtrada)
+        csv = tabla_filtrada.to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
 
 else:
