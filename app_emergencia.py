@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -97,6 +98,10 @@ legend_labels = [
     plt.Line2D([0], [0], color='red', lw=4, label='Alto')
 ]
 
+# Rango de fechas para visualización
+fecha_inicio = pd.to_datetime("2025-02-01")
+fecha_fin = pd.to_datetime("2025-09-01")
+
 # Procesar archivos subidos
 if uploaded_files:
     for file in uploaded_files:
@@ -126,13 +131,14 @@ if uploaded_files:
         ax_er.set_xlabel("Fecha")
         ax_er.set_ylabel("EMERREL (0-1)")
         ax_er.grid(True, linestyle="--", alpha=0.5)
+        ax_er.set_xlim(fecha_inicio, fecha_fin)
         ax_er.legend(handles=legend_labels, title="Nivel")
         ax_er.xaxis.set_major_locator(mdates.MonthLocator())
         ax_er.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
         plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_er)
 
-        # --- Gráfico EMEAC (%) de línea + área ---
+        # --- Gráfico EMEAC (%) como área ---
         st.subheader(f"Progreso acumulado de EMEAC (%) - {nombre}")
         fechas_validas = pd.to_datetime(pred["Fecha"])
         emeac_pct = pd.to_numeric(pred["EMEAC (%)"], errors="coerce")
@@ -147,6 +153,7 @@ if uploaded_files:
         ax_eac.set_xlabel("Fecha")
         ax_eac.set_ylabel("EMEAC (%)")
         ax_eac.set_ylim(0, 110)
+        ax_eac.set_xlim(fecha_inicio, fecha_fin)
         ax_eac.grid(True, linestyle="--", alpha=0.5)
         ax_eac.xaxis.set_major_locator(mdates.MonthLocator())
         ax_eac.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
@@ -160,4 +167,3 @@ if uploaded_files:
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
 else:
     st.info("Sube al menos un archivo .xlsx para visualizar los resultados.")
-
