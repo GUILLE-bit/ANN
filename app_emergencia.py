@@ -5,7 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pathlib import Path
 
-# ------------------- MODELO ANN ---------------------
+# ------------------- Modelo ANN ---------------------
 class PracticalANNModel:
     def __init__(self, IW, bias_IW, LW, bias_out):
         self.IW = IW
@@ -54,10 +54,9 @@ class PracticalANNModel:
         z2 = self.LW @ a1 + self.bias_out
         return self.tansig(z2)
 
-# ------------------ APP STREAMLIT --------------------
+# ------------------ Interfaz Streamlit ------------------
 st.title("Predicción de Emergencia Agrícola con ANN")
 
-# Umbral personalizable desde el usuario
 st.sidebar.header("Configuración")
 umbral_usuario = st.sidebar.number_input(
     "Umbral de EMEAC para 100%",
@@ -66,12 +65,16 @@ umbral_usuario = st.sidebar.number_input(
     value=2.7,
     step=0.01,
     format="%.2f",
-    help="Este umbral define el 100% del EMEAC para cualquier año"
+    help="Define el valor máximo acumulado de EMERREL para escalar EMEAC(%)"
 )
 
-# Carga de archivos y pesos del modelo
-uploaded_files = st.file_uploader("Sube archivos Excel por año", type=["xlsx"], accept_multiple_files=True)
+uploaded_files = st.file_uploader(
+    "Sube uno o más archivos Excel (.xlsx) con las columnas: Julian_days, TMAX, TMIN, Prec",
+    type=["xlsx"],
+    accept_multiple_files=True
+)
 
+# Cargar modelo
 base = Path(__file__).parent
 try:
     IW = np.load(base / "IW.npy")
@@ -84,54 +87,77 @@ except FileNotFoundError as e:
 
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
-if uploaded_files:
-    fig, ax = plt.subplots(figsize=(10, 4))
-    resultados = []
+# Colores por nivel de EMERREL
+def obtener_colores(niveles):
+    return niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"})
 
+legend_labels = [
+    plt.Line2D([0], [0], color='green', lw=4, label='Bajo'),
+    plt.Line2D([0], [0], color='orange', lw=4, label='Medio'),
+    plt.Line2D([0], [0], color='red', lw=4, label='Alto')
+]
+
+# Procesar archivos subidos
+if uploaded_files:
     for file in uploaded_files:
         df = pd.read_excel(file)
         if not all(col in df.columns for col in ["Julian_days", "TMAX", "TMIN", "Prec"]):
-            st.warning(f"Archivo {file.name} inválido: columnas faltantes.")
+            st.warning(f"El archivo {file.name} no tiene las columnas necesarias.")
             continue
 
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy()
         fechas = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Julian_days"] - 1, unit="D")
 
-        predicciones = modelo.predict(X_real)
-        predicciones["Fecha"] = fechas
-        predicciones["Julian_days"] = df["Julian_days"]
-        predicciones["EMERREL acumulado"] = predicciones["EMERREL(0-1)"].cumsum()
+        pred = modelo.predict(X_real)
+        pred["Fecha"] = fechas
+        pred["Julian_days"] = df["Julian_days"]
+        pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
+        pred["EMEAC (0-1)"] = pred["EMERREL acumulado"] / umbral_usuario
+        pred["EMEAC (%)"] = pred["EMEAC (0-1)"] * 100
 
-        # Escalar EMEAC(%) según el umbral proporcionado por el usuario
-        predicciones["EMEAC (0-1)"] = predicciones["EMERREL acumulado"] / umbral_usuario
-        predicciones["EMEAC (%)"] = predicciones["EMEAC (0-1)"] * 100
+        nombre = Path(file.name).stem
+        colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
-        # Nombre del archivo sin extensión como identificador
-        label = Path(file.name).stem
-        ax.plot(predicciones["Fecha"], predicciones["EMEAC (%)"], label=label, marker='o')
+        # --- Gráfico EMERREL (0-1) ---
+        st.subheader(f"Emergencia Relativa Diaria - {nombre}")
+        fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
+        ax_er.bar(pred["Fecha"], pred["EMERREL(0-1)"], color=colores)
+        ax_er.set_title(f"EMERREL (0-1) Diario - {nombre}")
+        ax_er.set_xlabel("Fecha")
+        ax_er.set_ylabel("EMERREL (0-1)")
+        ax_er.grid(True, linestyle="--", alpha=0.5)
+        ax_er.legend(handles=legend_labels, title="Nivel")
+        ax_er.xaxis.set_major_locator(mdates.MonthLocator())
+        ax_er.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
+        st.pyplot(fig_er)
 
-        # Guardar para posible descarga
-        predicciones["Año"] = label
-        resultados.append(predicciones)
+        # --- Gráfico EMEAC (%) de línea + área ---
+        st.subheader(f"Progreso acumulado de EMEAC (%) - {nombre}")
+        fechas_validas = pd.to_datetime(pred["Fecha"])
+        emeac_pct = pd.to_numeric(pred["EMEAC (%)"], errors="coerce")
+        validez = ~(fechas_validas.isna() | emeac_pct.isna())
+        fechas_plot = fechas_validas[validez].to_numpy()
+        emeac_plot = emeac_pct[validez].to_numpy()
 
-    # Finalizar gráfico
-    ax.set_title(f"Comparación EMEAC (%) con umbral: {umbral_usuario}")
-    ax.set_xlabel("Fecha")
-    ax.set_ylabel("EMEAC (%)")
-    ax.set_ylim(0, 110)
-    ax.grid(True, linestyle='--', alpha=0.5)
-    ax.legend()
-    ax.xaxis.set_major_locator(mdates.DayLocator(interval=10))
-    ax.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b'))
-    plt.xticks(rotation=45)
-    plt.tight_layout()
-    st.pyplot(fig)
+        fig_eac, ax_eac = plt.subplots(figsize=(14, 5), dpi=150)
+        ax_eac.fill_between(fechas_plot, emeac_plot, color="skyblue", alpha=0.5)
+        ax_eac.plot(fechas_plot, emeac_plot, color="blue", linewidth=2)
+        ax_eac.set_title(f"EMEAC (%) Acumulado - {nombre} (Umbral: {umbral_usuario})")
+        ax_eac.set_xlabel("Fecha")
+        ax_eac.set_ylabel("EMEAC (%)")
+        ax_eac.set_ylim(0, 110)
+        ax_eac.grid(True, linestyle="--", alpha=0.5)
+        ax_eac.xaxis.set_major_locator(mdates.MonthLocator())
+        ax_eac.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        plt.setp(ax_eac.xaxis.get_majorticklabels(), rotation=0)
+        st.pyplot(fig_eac)
 
-    # Combinar resultados en un DataFrame
-    df_total = pd.concat(resultados, ignore_index=True)
-    csv = df_total.to_csv(index=False).encode("utf-8")
-    st.download_button("Descargar resultados CSV", csv, "EMEAC_comparado.csv", "text/csv")
-
+        # Mostrar y exportar
+        st.subheader(f"Datos procesados - {nombre}")
+        st.dataframe(pred)
+        csv = pred.to_csv(index=False).encode("utf-8")
+        st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
 else:
-    st.info("Sube al menos un archivo .xlsx con columnas: Julian_days, TMAX, TMIN, Prec.")
+    st.info("Sube al menos un archivo .xlsx para visualizar los resultados.")
 
