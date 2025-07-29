@@ -1,4 +1,3 @@
-
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -65,17 +64,16 @@ umbral_usuario = st.sidebar.number_input(
     max_value=10.0,
     value=2.7,
     step=0.01,
-    format="%.2f",
-    help="Define el valor máximo acumulado de EMERREL para escalar EMEAC(%)"
+    format="%.2f"
 )
 
 uploaded_files = st.file_uploader(
-    "Sube uno o más archivos Excel (.xlsx) con las columnas: Julian_days, TMAX, TMIN, Prec",
+    "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
     type=["xlsx"],
     accept_multiple_files=True
 )
 
-# Cargar modelo
+# Cargar pesos del modelo
 base = Path(__file__).parent
 try:
     IW = np.load(base / "IW.npy")
@@ -88,7 +86,7 @@ except FileNotFoundError as e:
 
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
-# Colores por nivel de EMERREL
+# Función para asignar color según nivel
 def obtener_colores(niveles):
     return niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"})
 
@@ -98,16 +96,16 @@ legend_labels = [
     plt.Line2D([0], [0], color='red', lw=4, label='Alto')
 ]
 
-# Rango de fechas para visualización
-fecha_inicio = pd.to_datetime("2025-02-01")
+# Rango de visualización
+fecha_inicio = pd.to_datetime("2025-01-15")
 fecha_fin = pd.to_datetime("2025-09-01")
 
-# Procesar archivos subidos
+# Procesar cada archivo subido
 if uploaded_files:
     for file in uploaded_files:
         df = pd.read_excel(file)
         if not all(col in df.columns for col in ["Julian_days", "TMAX", "TMIN", "Prec"]):
-            st.warning(f"El archivo {file.name} no tiene las columnas necesarias.")
+            st.warning(f"{file.name} no tiene las columnas requeridas.")
             continue
 
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy()
@@ -123,23 +121,23 @@ if uploaded_files:
         nombre = Path(file.name).stem
         colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
-        # --- Gráfico EMERREL (0-1) ---
-        st.subheader(f"Emergencia Relativa Diaria - {nombre}")
+        # --- EMERREL (0-1) ---
+        st.subheader(f"EMERREL (0-1) - {nombre}")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
         ax_er.bar(pred["Fecha"], pred["EMERREL(0-1)"], color=colores)
-        ax_er.set_title(f"EMERREL (0-1) Diario - {nombre}")
+        ax_er.set_title(f"Emergencia Relativa Diaria - {nombre}")
         ax_er.set_xlabel("Fecha")
         ax_er.set_ylabel("EMERREL (0-1)")
         ax_er.grid(True, linestyle="--", alpha=0.5)
         ax_er.set_xlim(fecha_inicio, fecha_fin)
-        ax_er.legend(handles=legend_labels, title="Nivel")
+        ax_er.legend(handles=legend_labels, title="Niveles")
         ax_er.xaxis.set_major_locator(mdates.MonthLocator())
         ax_er.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
         plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_er)
 
-        # --- Gráfico EMEAC (%) como área ---
-        st.subheader(f"Progreso acumulado de EMEAC (%) - {nombre}")
+        # --- EMEAC (%) como área ---
+        st.subheader(f"EMEAC (%) - {nombre}")
         fechas_validas = pd.to_datetime(pred["Fecha"])
         emeac_pct = pd.to_numeric(pred["EMEAC (%)"], errors="coerce")
         validez = ~(fechas_validas.isna() | emeac_pct.isna())
@@ -149,7 +147,14 @@ if uploaded_files:
         fig_eac, ax_eac = plt.subplots(figsize=(14, 5), dpi=150)
         ax_eac.fill_between(fechas_plot, emeac_plot, color="skyblue", alpha=0.5)
         ax_eac.plot(fechas_plot, emeac_plot, color="blue", linewidth=2)
-        ax_eac.set_title(f"EMEAC (%) Acumulado - {nombre} (Umbral: {umbral_usuario})")
+
+        # Líneas horizontales
+        niveles = [25, 50, 75, 90]
+        colores_niveles = ['gray', 'green', 'orange', 'red']
+        for nivel, color in zip(niveles, colores_niveles):
+            ax_eac.axhline(nivel, linestyle='--', color=color, linewidth=1.5, label=f'{nivel}%')
+
+        ax_eac.set_title(f"Progreso EMEAC (%) - {nombre} (Umbral: {umbral_usuario})")
         ax_eac.set_xlabel("Fecha")
         ax_eac.set_ylabel("EMEAC (%)")
         ax_eac.set_ylim(0, 110)
@@ -157,13 +162,15 @@ if uploaded_files:
         ax_eac.grid(True, linestyle="--", alpha=0.5)
         ax_eac.xaxis.set_major_locator(mdates.MonthLocator())
         ax_eac.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax_eac.legend(title="Niveles EMEAC (%)")
         plt.setp(ax_eac.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_eac)
 
-        # Mostrar y exportar
-        st.subheader(f"Datos procesados - {nombre}")
+        # Mostrar tabla
+        st.subheader(f"Datos calculados - {nombre}")
         st.dataframe(pred)
         csv = pred.to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
+
 else:
-    st.info("Sube al menos un archivo .xlsx para visualizar los resultados.")
+    st.info("Sube al menos un archivo .xlsx para iniciar el análisis.")
