@@ -29,8 +29,8 @@ class PracticalANNModel:
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
         emerrel_desnorm = self.desnormalize_output(emerrel_pred)
         emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        valor_max_emeac = 8.0
-        emer_ac = (emerrel_cumsum / valor_max_emeac)
+        valor_max_emeac = 8.05
+        emer_ac = emerrel_cumsum / valor_max_emeac
         emerrel_diff = np.diff(emer_ac, prepend=0)
 
         def clasificar(valor):
@@ -57,16 +57,20 @@ class PracticalANNModel:
 # --- Interfaz Streamlit ---
 st.title("Predicción de Emergencia - Modelo ANN")
 
-uploaded_file = st.file_uploader("2025.xlsx", type=["xlsx"])
+uploaded_file = st.file_uploader("Cargar archivo 2025.xlsx", type=["xlsx"])
 
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
     if all(col in df.columns for col in ["Julian_days", "TMAX", "TMIN", "Prec"]):
         base = Path(__file__).parent
-        IW = np.load(base / "IW.npy")
-        bias_IW = np.load(base / "bias_IW.npy")
-        LW = np.load(base / "LW.npy")
-        bias_out = np.load(base / "bias_out.npy")
+        try:
+            IW = np.load(base / "IW.npy")
+            bias_IW = np.load(base / "bias_IW.npy")
+            LW = np.load(base / "LW.npy")
+            bias_out = np.load(base / "bias_out.npy")
+        except FileNotFoundError as e:
+            st.error(f"Archivo del modelo faltante: {e}")
+            st.stop()
 
         modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
@@ -77,15 +81,20 @@ if uploaded_file is not None:
         salidas["Fecha"] = fechas
         salidas = pd.concat([df["Julian_days"], salidas], axis=1)
 
-        # --- Filtrar datos del año agrícola y calcular EMEAC ---
+        # --- Filtrar datos del año agrícola ---
         salidas_filtradas = salidas[(salidas["Julian_days"] >= 32) & (salidas["Julian_days"] <= 240)].copy()
-        valor_max_emeac = 8.21
+        valor_max_emeac = 8.05
         salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac
 
-        # Calcular factor de escalado dinámico
-        acumulado_final = salidas_filtradas["EMERREL(0-1)"].cumsum().iloc[-1]
-        escalado_factor = 100 / (acumulado_final / valor_max_emeac)
-        salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * escalado_factor
+        # Escalado corregido: alcanzar 100% exactamente cuando emerrel_cumsum == valor_max_emeac
+        idx_objetivo = salidas_filtradas[salidas_filtradas["EMEAC"] >= 1].index.min()
+        if pd.notnull(idx_objetivo):
+            escala_real = 100 / salidas_filtradas.loc[idx_objetivo, "EMEAC"]
+            salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * escala_real
+        else:
+            st.warning("EMERREL acumulado nunca alcanzó el valor máximo esperado (8.05). Escalando con valor final.")
+            escala_real = 100 / salidas_filtradas["EMEAC"].iloc[-1]
+            salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * escala_real
 
         # --- Gráfico EMERREL ---
         st.subheader("Emergencia Relativa Diaria (EMERREL(0-1))")
@@ -106,9 +115,9 @@ if uploaded_file is not None:
         fig_emeac, ax_emeac = plt.subplots(figsize=(10, 4))
         ax_emeac.bar(salidas_filtradas["Fecha"], salidas_filtradas["EMEAC(%)"], color="skyblue")
         niveles = {"10%": ("gray", 10), "25%": ("green", 25), "50%": ("orange", 50), "75%": ("red", 75), "90%": ("purple", 90)}
+        import matplotlib.dates as mdates
         for label, (color, yval) in niveles.items():
             ax_emeac.axhline(yval, color=color, linestyle="--", linewidth=1.5, label=label)
-        import matplotlib.dates as mdates
         ax_emeac.set_xlabel("Fecha")
         ax_emeac.set_ylabel("EMEAC (%)")
         ax_emeac.set_title("Acumulado porcentual de Emergencia - 2025")
