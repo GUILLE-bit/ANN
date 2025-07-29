@@ -62,7 +62,7 @@ umbral_usuario = st.sidebar.number_input(
     "Umbral de EMEAC para 100%",
     min_value=0.1,
     max_value=10.0,
-    value=2.7,
+    value=2.77,
     step=0.01,
     format="%.2f"
 )
