@@ -157,7 +157,7 @@ if uploaded_files:
         ax_eac.set_title(f"Progreso EMEAC (%) - {nombre} (Umbral: {umbral_usuario})")
         ax_eac.set_xlabel("Fecha")
         ax_eac.set_ylabel("EMEAC (%)")
-        ax_eac.set_ylim(0, 110)
+        ax_eac.set_ylim(0, 100)
         ax_eac.set_xlim(fecha_inicio, fecha_fin)
         ax_eac.grid(True, linestyle="--", alpha=0.5)
         ax_eac.xaxis.set_major_locator(mdates.MonthLocator())
