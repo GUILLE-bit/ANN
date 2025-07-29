@@ -2,7 +2,6 @@ import streamlit as st
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
-import os
 from pathlib import Path
 
 # --- Modelo ANN ---
@@ -57,7 +56,7 @@ class PracticalANNModel:
 # --- Interfaz Streamlit ---
 st.title("Predicción de Emergencia - Modelo ANN")
 
-uploaded_file = st.file_uploader("Cargar archivo 2025.xlsx", type=["xlsx"])
+uploaded_file = st.file_uploader("Cargar archivo Excel (2025)", type=["xlsx"])
 
 if uploaded_file is not None:
     df = pd.read_excel(uploaded_file)
@@ -69,7 +68,7 @@ if uploaded_file is not None:
             LW = np.load(base / "LW.npy")
             bias_out = np.load(base / "bias_out.npy")
         except FileNotFoundError as e:
-            st.error(f"Archivo del modelo faltante: {e}")
+            st.error(f"Faltan archivos del modelo: {e}")
             st.stop()
 
         modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
@@ -86,17 +85,19 @@ if uploaded_file is not None:
         valor_max_emeac = 8.05
         salidas_filtradas["EMEAC"] = salidas_filtradas["EMERREL(0-1)"].cumsum() / valor_max_emeac
 
-        # Escalado corregido: alcanzar 100% exactamente cuando emerrel_cumsum == valor_max_emeac
-        idx_objetivo = salidas_filtradas[salidas_filtradas["EMEAC"] >= 1].index.min()
-        if pd.notnull(idx_objetivo):
+        # --- Calcular EMEAC(%) sin escalado forzado ---
+        emerrel_acumulado = salidas_filtradas["EMERREL(0-1)"].cumsum()
+        total_acumulado = emerrel_acumulado.iloc[-1]
+
+        if total_acumulado >= valor_max_emeac:
+            idx_objetivo = salidas_filtradas[salidas_filtradas["EMEAC"] >= 1].index.min()
             escala_real = 100 / salidas_filtradas.loc[idx_objetivo, "EMEAC"]
             salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * escala_real
         else:
-            st.warning("EMERREL acumulado nunca alcanzó el valor máximo esperado (8.05). Escalando con valor final.")
-            escala_real = 100 / salidas_filtradas["EMEAC"].iloc[-1]
-            salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * escala_real
+            st.warning("EMERREL acumulado no alcanzó el valor objetivo de 8.05. Se mostrará el porcentaje real alcanzado.")
+            salidas_filtradas["EMEAC(%)"] = salidas_filtradas["EMEAC"] * 100
 
-        # --- Gráfico EMERREL ---
+        # --- Gráfico EMERREL(0-1) ---
         st.subheader("Emergencia Relativa Diaria (EMERREL(0-1))")
         fig, ax = plt.subplots(figsize=(10, 4))
         color_map = {"Bajo": "green", "Medio": "orange", "Alto": "red"}
@@ -112,27 +113,23 @@ if uploaded_file is not None:
 
         # --- Gráfico EMEAC(%) ---
         st.subheader("Progreso porcentual acumulado de Emergencia (EMEAC%)")
-        fig_emeac, ax_emeac = plt.subplots(figsize=(10, 4))
-        ax_emeac.bar(salidas_filtradas["Fecha"], salidas_filtradas["EMEAC(%)"], color="skyblue")
-        niveles = {"10%": ("gray", 10), "25%": ("green", 25), "50%": ("orange", 50), "75%": ("red", 75), "90%": ("purple", 90)}
+        fig2, ax2 = plt.subplots(figsize=(10, 4))
+        ax2.bar(salidas_filtradas["Fecha"], salidas_filtradas["EMEAC(%)"], color="skyblue")
         import matplotlib.dates as mdates
-        for label, (color, yval) in niveles.items():
-            ax_emeac.axhline(yval, color=color, linestyle="--", linewidth=1.5, label=label)
-        ax_emeac.set_xlabel("Fecha")
-        ax_emeac.set_ylabel("EMEAC (%)")
-        ax_emeac.set_title("Acumulado porcentual de Emergencia - 2025")
-        ax_emeac.grid(True, linestyle="--", alpha=0.5)
-        ax_emeac.set_ylim(0, 100)
-        ax_emeac.xaxis.set_major_locator(mdates.DayLocator(interval=30))
-        ax_emeac.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b'))
-        ax_emeac.legend(title="Niveles de EMEAC")
-        st.pyplot(fig_emeac)
+        ax2.xaxis.set_major_locator(mdates.DayLocator(interval=7))
+        ax2.xaxis.set_major_formatter(mdates.DateFormatter('%d-%b'))
+        ax2.set_xlabel("Fecha")
+        ax2.set_ylabel("EMEAC (%)")
+        ax2.set_title("Acumulado porcentual de Emergencia - 2025")
+        ax2.grid(True, linestyle="--", alpha=0.5)
+        ax2.set_ylim(0, 100)
+        ax2.axhline(100, color='red', linestyle='--', linewidth=1)
+        st.pyplot(fig2)
 
         # --- Descargar resultados ---
         st.subheader("Resultados")
         st.dataframe(salidas_filtradas)
         csv = salidas_filtradas.to_csv(index=False).encode('utf-8')
-        st.download_button("Descargar resultados en CSV", csv, "predicciones_emergencia_2025.csv", "text/csv")
-
+        st.download_button("Descargar CSV", csv, "predicciones_emergencia_2025.csv", "text/csv")
     else:
         st.error("El archivo debe contener las columnas: Julian_days, TMAX, TMIN, Prec.")
