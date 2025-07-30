@@ -60,7 +60,7 @@ st.title("Predicción de Emergencia Agrícola con ANN")
 st.sidebar.header("Configuración")
 umbral_usuario = st.sidebar.number_input(
     "Umbral de EMEAC para 100%",
-    min_value=1.00,
+    min_value=0.5,
     max_value=3.00,
     value=2.77,
     step=0.01,
