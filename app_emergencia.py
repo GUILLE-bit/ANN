@@ -174,7 +174,7 @@ if uploaded_files:
 
         # Tabla de resultados
         st.subheader(f"Datos calculados - {nombre}")
-        columnas = ["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%) - mínimo", "EMEAC (%) - ajustable", "EMEAC (%) - máximo"]
+        columnas = ["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%) - ajustable"]
         st.dataframe(pred[columnas])
         csv = pred[columnas].to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
