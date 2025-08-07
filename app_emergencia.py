@@ -1,3 +1,4 @@
+
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -24,6 +25,12 @@ class PracticalANNModel:
     def desnormalize_output(self, y_norm, ymin=-1, ymax=1):
         return (y_norm - ymin) / (ymax - ymin)
 
+    def _predict_single(self, x_norm):
+        z1 = self.IW.T @ x_norm + self.bias_IW
+        a1 = self.tansig(z1)
+        z2 = self.LW @ a1 + self.bias_out
+        return self.tansig(z2)
+
     def predict(self, X_real):
         X_norm = self.normalize_input(X_real)
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
@@ -47,12 +54,6 @@ class PracticalANNModel:
             "EMERREL(0-1)": emerrel_diff,
             "Nivel_Emergencia_relativa": riesgo
         })
-
-    def _predict_single(self, x_norm):
-        z1 = self.IW.T @ x_norm + self.bias_IW
-        a1 = self.tansig(z1)
-        z2 = self.LW @ a1 + self.bias_out
-        return self.tansig(z2)
 
 # ------------------ Interfaz Streamlit ------------------
 st.title("Predicción de Emergencia Agrícola con ANN")
@@ -90,17 +91,10 @@ modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 def obtener_colores(niveles):
     return niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"})
 
-legend_labels = [
-    plt.Line2D([0], [0], color='green', lw=4, label='Bajo'),
-    plt.Line2D([0], [0], color='orange', lw=4, label='Medio'),
-    plt.Line2D([0], [0], color='red', lw=4, label='Alto')
-]
-
 # Rango de visualización
 fecha_inicio = pd.to_datetime("2025-01-15")
 fecha_fin = pd.to_datetime("2025-09-01")
 
-# Procesar cada archivo subido
 if uploaded_files:
     for file in uploaded_files:
         df = pd.read_excel(file)
@@ -110,18 +104,24 @@ if uploaded_files:
 
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy()
         fechas = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Julian_days"] - 1, unit="D")
-
         pred = modelo.predict(X_real)
+
         pred["Fecha"] = fechas
         pred["Julian_days"] = df["Julian_days"]
         pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
-        pred["EMEAC (0-1)"] = pred["EMERREL acumulado"] / umbral_usuario
-        pred["EMEAC (%)"] = pred["EMEAC (0-1)"] * 100
+
+        # Umbrales
+        pred["EMEAC (0-1) - mínimo"] = pred["EMERREL acumulado"] / 1.2
+        pred["EMEAC (0-1) - máximo"] = pred["EMERREL acumulado"] / 2.77
+        pred["EMEAC (0-1) - ajustable"] = pred["EMERREL acumulado"] / umbral_usuario
+        pred["EMEAC (%) - mínimo"] = pred["EMEAC (0-1) - mínimo"] * 100
+        pred["EMEAC (%) - máximo"] = pred["EMEAC (0-1) - máximo"] * 100
+        pred["EMEAC (%) - ajustable"] = pred["EMEAC (0-1) - ajustable"] * 100
 
         nombre = Path(file.name).stem
         colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
-        # --- EMERREL (0-1) ---
+        # Gráfico EMERREL
         st.subheader(f"EMERREL (0-1) - {nombre}")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
         ax_er.bar(pred["Fecha"], pred["EMERREL(0-1)"], color=colores)
@@ -130,48 +130,39 @@ if uploaded_files:
         ax_er.set_ylabel("EMERREL (0-1)")
         ax_er.grid(True, linestyle="--", alpha=0.5)
         ax_er.set_xlim(fecha_inicio, fecha_fin)
-        ax_er.legend(handles=legend_labels, title="Niveles")
         ax_er.xaxis.set_major_locator(mdates.MonthLocator())
         ax_er.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
         plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_er)
 
-        # --- EMEAC (%) como área ---
+        # Gráfico EMEAC con área y líneas
         st.subheader(f"EMEAC (%) - {nombre}")
-        fechas_validas = pd.to_datetime(pred["Fecha"])
-        emeac_pct = pd.to_numeric(pred["EMEAC (%)"], errors="coerce")
-        validez = ~(fechas_validas.isna() | emeac_pct.isna())
-        fechas_plot = fechas_validas[validez].to_numpy()
-        emeac_plot = emeac_pct[validez].to_numpy()
+        fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
+        ax.fill_between(pred["Fecha"], pred["EMEAC (%) - mínimo"], pred["EMEAC (%) - máximo"], color="lightgray", alpha=0.4, label="Rango entre mínimo y máximo")
+        ax.plot(pred["Fecha"], pred["EMEAC (%) - ajustable"], color="blue", linewidth=2.5, label="Umbral ajustable")
+        ax.plot(pred["Fecha"], pred["EMEAC (%) - mínimo"], linestyle='--', color="black", linewidth=1.5, label="Umbral mínimo")
+        ax.plot(pred["Fecha"], pred["EMEAC (%) - máximo"], linestyle='--', color="black", linewidth=1.5, label="Umbral máximo")
 
-        fig_eac, ax_eac = plt.subplots(figsize=(14, 5), dpi=150)
-        ax_eac.fill_between(fechas_plot, emeac_plot, color="skyblue", alpha=0.5)
-        ax_eac.plot(fechas_plot, emeac_plot, color="blue", linewidth=2)
+        for nivel, color in zip([25, 50, 75, 90], ['gray', 'green', 'orange', 'red']):
+            ax.axhline(nivel, linestyle='--', color=color, linewidth=1.5, label=f'90%')
 
-        # Líneas horizontales
-        niveles = [25, 50, 75, 90]
-        colores_niveles = ['gray', 'green', 'orange', 'red']
-        for nivel, color in zip(niveles, colores_niveles):
-            ax_eac.axhline(nivel, linestyle='--', color=color, linewidth=1.5, label=f'{nivel}%')
+        ax.set_title(f"Progreso EMEAC (%) - {nombre}")
+        ax.set_xlabel("Fecha")
+        ax.set_ylabel("EMEAC (%)")
+        ax.set_ylim(0, 100)
+        ax.set_xlim(fecha_inicio, fecha_fin)
+        ax.grid(True, linestyle="--", alpha=0.5)
+        ax.xaxis.set_major_locator(mdates.MonthLocator())
+        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        ax.legend(title="Referencias", loc="upper left")
+        plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
+        st.pyplot(fig)
 
-        ax_eac.set_title(f"Progreso EMEAC (%) - {nombre} (Umbral: {umbral_usuario})")
-        ax_eac.set_xlabel("Fecha")
-        ax_eac.set_ylabel("EMEAC (%)")
-        ax_eac.set_ylim(0, 100)
-        ax_eac.set_xlim(fecha_inicio, fecha_fin)
-        ax_eac.grid(True, linestyle="--", alpha=0.5)
-        ax_eac.xaxis.set_major_locator(mdates.MonthLocator())
-        ax_eac.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-        ax_eac.legend(title="Niveles EMEAC (%)")
-        plt.setp(ax_eac.xaxis.get_majorticklabels(), rotation=0)
-        st.pyplot(fig_eac)
-
-        # Mostrar tabla
+        # Tabla de resultados
         st.subheader(f"Datos calculados - {nombre}")
-        # Filtrar columnas deseadas
-        tabla_filtrada = pred[["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%)"]]
-        st.dataframe(tabla_filtrada)
-        csv = tabla_filtrada.to_csv(index=False).encode("utf-8")
+        columnas = ["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%) - mínimo", "EMEAC (%) - ajustable", "EMEAC (%) - máximo"]
+        st.dataframe(pred[columnas])
+        csv = pred[columnas].to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
 
 else:
