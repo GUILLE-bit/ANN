@@ -161,7 +161,14 @@ if uploaded_files:
             for nivel, color in zip([25, 50, 75, 90], ['gray', 'green', 'orange', 'red'])
         ]
         handles, labels = ax.get_legend_handles_labels()
-        ax.legend(handles + lineas_referencia, labels + [f"{nivel}%" for nivel in [25, 50, 75, 90]], title="Referencias", loc="lower right")
+        from matplotlib.lines import Line2D
+        custom_legend = [
+            Line2D([0], [0], color="lightgray", linewidth=10, alpha=0.4, label="Rango entre mínimo y máximo"),
+            Line2D([0], [0], color="blue", linewidth=2.5, label="Umbral ajustable"),
+            Line2D([0], [0], color="black", linestyle='--', linewidth=1.5, label="Umbral mínimo"),
+            Line2D([0], [0], color="black", linestyle='--', linewidth=1.5, label="Umbral máximo")
+        ]
+        ax.legend(handles=custom_legend, title="Referencias", loc="lower right")
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
