@@ -154,7 +154,14 @@ if uploaded_files:
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.xaxis.set_major_locator(mdates.MonthLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-        ax.legend(title="Referencias", loc="lower right")
+        # Leyenda manual para líneas horizontales
+        from matplotlib.lines import Line2D
+        lineas_referencia = [
+            Line2D([0], [0], color=color, linestyle='--', linewidth=1.5, label=f'{nivel}%')
+            for nivel, color in zip([25, 50, 75, 90], ['gray', 'green', 'orange', 'red'])
+        ]
+        handles, labels = ax.get_legend_handles_labels()
+        ax.legend(handles + lineas_referencia, labels + [f"{nivel}%" for nivel in [25, 50, 75, 90]], title="Referencias", loc="lower right")
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
