@@ -154,7 +154,7 @@ if uploaded_files:
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.xaxis.set_major_locator(mdates.MonthLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-        ax.legend(title="Referencias", loc="upper left")
+        ax.legend(title="Referencias", loc="lower right")
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
