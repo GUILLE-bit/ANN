@@ -124,10 +124,15 @@ if uploaded_files:
         nombre = Path(file.name).stem
         colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
+        # Calcular media móvil de 5 días
+        pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
+
         # Gráfico EMERREL
         st.subheader(f"EMERREL (0-1) - {nombre}")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
         ax_er.bar(pred["Fecha"], pred["EMERREL(0-1)"], color=colores)
+        ax_er.plot(pred["Fecha"], pred["EMERREL_MA5"], color="blue", linewidth=2.2, label="Media móvil 5 días")
+        ax_er.legend(loc="upper right")
         ax_er.set_title(f"Emergencia Relativa Diaria - {nombre}")
         ax_er.set_xlabel("Fecha")
         ax_er.set_ylabel("EMERREL (0-1)")
