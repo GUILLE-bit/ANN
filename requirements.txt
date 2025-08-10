@@ -1,9 +1,5 @@
-
-streamlit
-pandas
-numpy
-scikit-learn
-xgboost
-joblib
-matplotlib
-openpyxl
+streamlit>=1.25.0
+pandas>=1.5.0
+numpy>=1.23.0
+matplotlib>=3.6.0
+plotly>=5.0.0
