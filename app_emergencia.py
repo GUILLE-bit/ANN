@@ -5,8 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from datetime import datetime, timedelta
 from pathlib import Path
-import io
-import hashlib
+import io, os, hashlib
 
 # ===================== CONFIGURACIÓN BÁSICA =====================
 st.set_page_config(
@@ -35,8 +34,9 @@ REQ_COLS = ("Julian_days", "TMAX", "TMIN", "Prec")
 # ===================== MODELO ANN (vectorizado) =====================
 class PracticalANNModel:
     def __init__(self, IW, bias_IW, LW, bias_out):
-        self.IW = IW          # (in, hidden)
-        self.bias_IW = bias_IW  # (hidden,)
+        # Se espera IW con shape (in, hidden); si viene (hidden, in), se corrige más abajo
+        self.IW = IW
+        self.bias_IW = bias_IW
         self.LW = LW          # (out, hidden)
         self.bias_out = bias_out  # (out,)
         self.input_min = np.array([1, 0, -7, 0])
@@ -58,10 +58,8 @@ class PracticalANNModel:
         Devuelve EMERREL (0–1) diario como diferencial de EMEAC normalizado.
         """
         Xn = self.normalize_input(X_real)            # (n, in)
-        # z1 = IW^T @ x + b    -> batch: Xn @ IW + b
         z1 = Xn @ self.IW + self.bias_IW             # (n, hidden)
         a1 = self.tansig(z1)
-        # z2 = LW @ a1 + b     -> batch: a1 @ LW.T + b
         z2 = a1 @ self.LW.T + self.bias_out          # (n, out)
         y = self.tansig(z2).reshape(-1)              # (n,)
         emerrel_desnorm = self.desnormalize_output(y)  # (0..1)
@@ -74,26 +72,36 @@ class PracticalANNModel:
 @st.cache_resource(show_spinner=False)
 def load_model():
     base = Path(".")
-    try:
-        IW = np.load(base / "IW.npy")
-        bias_IW = np.load(base / "bias_IW.npy")
-        LW = np.load(base / "LW.npy")
-        bias_out = np.load(base / "bias_out.npy")
-        # Asegurar shapes consistentes
-        # Esperamos IW shape (in, hidden); si viene (hidden, in), transponemos
-        if IW.shape[0] != 4:
-            IW = IW.T
-        return PracticalANNModel(IW, bias_IW, LW, bias_out)
-    except Exception as e:
-        st.error(f"No pude cargar los pesos del modelo: {e}")
-        return None
+    IW = np.load(base / "IW.npy")
+    bias_IW = np.load(base / "bias_IW.npy")
+    LW = np.load(base / "LW.npy")
+    bias_out = np.load(base / "bias_out.npy")
+    # Asegurar shapes consistentes: IW debe ser (in, hidden)
+    if IW.shape[0] != 4 and IW.shape[1] == 4:
+        IW = IW.T
+    return PracticalANNModel(IW, bias_IW, LW, bias_out)
+
+# Modelo global cacheado
+model = None
+try:
+    model = load_model()
+except Exception as e:
+    st.error(f"No pude cargar los pesos del modelo: {e}")
+    st.stop()
+
+# ===================== FIRMA DE PESOS (para cache de datos) =====================
+def weights_signature(paths):
+    h = hashlib.md5()
+    for p in paths:
+        stt = os.stat(p)
+        h.update(str(stt.st_mtime_ns).encode())
+        h.update(str(stt.st_size).encode())
+    return h.hexdigest()
+
+base = Path(".")
+WEIGHTS_SIG = weights_signature([base/"IW.npy", base/"bias_IW.npy", base/"LW.npy", base/"bias_out.npy"])
 
 # ===================== UTILIDADES (cache) =====================
-def _file_key(uploaded_file) -> str:
-    b = uploaded_file.getbuffer()
-    h = hashlib.md5(b).hexdigest()
-    return f"{uploaded_file.name}:{h}"
-
 @st.cache_data(show_spinner=False)
 def read_excel_cached(file_bytes: bytes) -> pd.DataFrame:
     return pd.read_excel(io.BytesIO(file_bytes), engine="openpyxl")
@@ -114,21 +122,29 @@ def fechas_desde_juliano(anio: int, julian: pd.Series) -> pd.Series:
     return pd.to_datetime([base + timedelta(days=int(j) - 1) for j in julian])
 
 @st.cache_data(show_spinner=False)
-def calcular_series(X: np.ndarray, umbral_100: float, model: PracticalANNModel) -> dict:
+def regla_precipitacion(prec: np.ndarray, emerrel: np.ndarray, ventana: int = 8, umbral_mm: float = 5.0, enabled: bool = True):
+    if not enabled:
+        return emerrel
+    s = pd.Series(prec).rolling(window=ventana, min_periods=1).sum().to_numpy()
+    mask = s >= umbral_mm
+    out = emerrel.copy()
+    out[~mask] = 0.0
+    return out
+
+# —— calcular_series SIN pasar el objeto model; usamos firma de pesos ——
+@st.cache_data(show_spinner=False)
+def calcular_series(X: np.ndarray, prec: np.ndarray, umbral_100: float, aplicar_regla: bool, weights_sig: str):
+    # Usamos el modelo global
+    global model
     emerrel = model.predict_batch(X)  # diferencial diario (0–1)
-    emerrel_cumsum = np.cumsum(emerrel)  # acumulado (0.. VALOR_MAX_EMEAC_MODEL/VALOR_MAX_EMEAC_MODEL = ~1)
+    emerrel = regla_precipitacion(prec, emerrel, enabled=aplicar_regla)
+    emerrel_cumsum = np.cumsum(emerrel)
     emeac_min = np.clip(emerrel_cumsum / PRIMARY_MIN, 0, 1) * 100.0
     emeac_max = np.clip(emerrel_cumsum / PRIMARY_MAX, 0, 1) * 100.0
     emeac_adj = np.clip(emerrel_cumsum / umbral_100, 0, 1) * 100.0
     # Clasificación rápida
     niveles = np.where(emerrel < 0.02, "Bajo", np.where(emerrel <= 0.079, "Medio", "Alto"))
-    return {
-        "emerrel": emerrel,
-        "emeac_min": emeac_min,
-        "emeac_max": emeac_max,
-        "emeac_adj": emeac_adj,
-        "niveles": niveles,
-    }
+    return emerrel, emeac_min, emeac_max, emeac_adj, niveles
 
 # ===================== UI =====================
 st.title("🌱 PREDWEEM – Predicción de Emergencia con ANN")
@@ -155,19 +171,14 @@ with st.sidebar:
             "- Use la plantilla del portal para evitar errores de nombres."
         )
 
-model = load_model()
-if model is None:
-    st.stop()
+# Paleta para barras por nivel
+COLOR_MAP = {"Bajo": "green", "Medio": "orange", "Alto": "red"}
 
 if not uploaded_files:
     st.info("👈 Cargue al menos un archivo .xlsx para comenzar.")
     st.stop()
 
-# Paleta para barras por nivel
-COLOR_MAP = {"Bajo": "green", "Medio": "orange", "Alto": "red"}
-
 for uf in uploaded_files:
-    key = _file_key(uf)
     try:
         df_raw = read_excel_cached(uf.getbuffer().tobytes())
         df = coerce_validate(df_raw)
@@ -177,7 +188,9 @@ for uf in uploaded_files:
 
     X = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy()
     fechas = fechas_desde_juliano(anio_base, df["Julian_days"])
-    series = calcular_series(X, umbral_usuario, model)
+    emerrel, emeac_min, emeac_max, emeac_adj, niveles = calcular_series(
+        X, df["Prec"].to_numpy(), umbral_usuario, True, WEIGHTS_SIG
+    )
 
     # Rango sugerido para slider de fechas
     fecha_min, fecha_max = fechas.min(), fechas.max()
@@ -191,16 +204,16 @@ for uf in uploaded_files:
             max_value=fecha_max.to_pydatetime(),
             value=(max(fecha_min.to_pydatetime(), datetime(anio_base,1,15)),
                    min(fecha_max.to_pydatetime(), datetime(anio_base,9,1))),
-            key=f"slider_{key}",
+            key=f"slider_{uf.name}",
         )
 
     mask = (fechas >= rango[0]) & (fechas <= rango[1])
     f = fechas[mask]
-    er = series["emerrel"][mask]
-    emin = series["emeac_min"][mask]
-    emax = series["emeac_max"][mask]
-    eadj = series["emeac_adj"][mask]
-    niveles = series["niveles"][mask]
+    er = emerrel[mask]
+    emin = emeac_min[mask]
+    emax = emeac_max[mask]
+    eadj = emeac_adj[mask]
+    niveles_mask = niveles[mask]
 
     tabs = st.tabs(["📈 Gráficos", "🧾 Tabla", "⬇️ Descargas"])
 
@@ -208,7 +221,7 @@ for uf in uploaded_files:
     with tabs[0]:
         st.markdown("#### EMERREL (0–1)")
         fig_er, ax_er = plt.subplots(figsize=(11, 3.8), dpi=150)
-        colores = pd.Series(niveles).map(COLOR_MAP).values
+        colores = pd.Series(niveles_mask).map(COLOR_MAP).values
         ax_er.bar(f, er, color=colores, width=1.0, align="center")
         ax_er.set_ylabel("EMERREL")
         ax_er.set_ylim(0, max(0.2, er.max()*1.1 if len(er) else 1))
@@ -238,14 +251,13 @@ for uf in uploaded_files:
     with tabs[1]:
         tabla = pd.DataFrame({
             "Fecha": fechas,
-            "Nivel_Emergencia_relativa": series["niveles"],
-            "EMEAC (%) - ajustable": np.round(series["emeac_adj"], 1),
+            "Nivel_Emergencia_relativa": niveles,
+            "EMEAC (%) - ajustable": np.round(emeac_adj, 1),
         })
         st.dataframe(tabla.loc[mask], use_container_width=True, height=360)
 
     # --------- Tab Descargas ---------
     with tabs[2]:
-        # CSV ligero
         csv = tabla.to_csv(index=False).encode("utf-8")
         st.download_button(
             "Descargar CSV",
@@ -254,7 +266,6 @@ for uf in uploaded_files:
             mime="text/csv",
             use_container_width=True,
         )
-        # Excel con hojas separadas
         buf = io.BytesIO()
         with pd.ExcelWriter(buf, engine="xlsxwriter") as writer:
             tabla.to_excel(writer, index=False, sheet_name="resultados")
