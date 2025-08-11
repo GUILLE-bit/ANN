@@ -1,4 +1,4 @@
-
+# app_emergencia.py
 import streamlit as st
 import numpy as np
 import pandas as pd
@@ -6,7 +6,9 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pathlib import Path
 
-# ------------------- Modelo ANN ---------------------
+st.set_page_config(page_title="Predicción de Emergencia Agrícola con ANN", layout="wide")
+
+# =================== Modelo ANN (tu lógica original) ===================
 class PracticalANNModel:
     def __init__(self, IW, bias_IW, LW, bias_out):
         self.IW = IW
@@ -55,23 +57,44 @@ class PracticalANNModel:
             "Nivel_Emergencia_relativa": riesgo
         })
 
-# ------------------ Interfaz Streamlit ------------------
+# =================== Carga de datos (CSV público o Excel) ===================
+CSV_URL = "https://GUILLE-bit.github.io/METEO/meteo_daily.csv"
+
+@st.cache_data(ttl=900)  # 15 min
+def load_public_csv():
+    df = pd.read_csv(CSV_URL, parse_dates=["Fecha"])
+    # Garantiza columnas y orden
+    req = ["Fecha", "Julian_days", "TMAX", "TMIN", "Prec"]
+    faltan = set(req) - set(df.columns)
+    if faltan:
+        raise ValueError(f"CSV público no tiene columnas requeridas: {', '.join(sorted(faltan))}")
+    return df.sort_values("Julian_days").reset_index(drop=True)
+
+def validar_columnas(df: pd.DataFrame) -> tuple[bool, str]:
+    req = {"Julian_days", "TMAX", "TMIN", "Prec"}
+    faltan = req - set(df.columns)
+    if faltan:
+        return False, f"Faltan columnas: {', '.join(sorted(faltan))}"
+    return True, ""
+
+def obtener_colores(niveles: pd.Series):
+    m = niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"})
+    return m.fillna("gray")
+
+def detectar_fuera_rango(X_real: np.ndarray, input_min: np.ndarray, input_max: np.ndarray) -> bool:
+    out = (X_real < input_min) | (X_real > input_max)
+    return bool(np.any(out))
+
+# =================== UI ===================
 st.title("Predicción de Emergencia Agrícola con ANN")
+
+st.sidebar.header("Fuente de datos")
+fuente = st.sidebar.radio("Elegí la fuente", ["Automático (CSV público)", "Subir Excel"])
 
 st.sidebar.header("Configuración")
 umbral_usuario = st.sidebar.number_input(
     "Umbral de EMEAC para 100%",
-    min_value=1.2,
-    max_value=3.0,
-    value=2.90,
-    step=0.01,
-    format="%.2f"
-)
-
-uploaded_files = st.file_uploader(
-    "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
-    type=["xlsx"],
-    accept_multiple_files=True
+    min_value=1.2, max_value=3.0, value=2.90, step=0.01, format="%.2f"
 )
 
 # Cargar pesos del modelo
@@ -87,33 +110,64 @@ except FileNotFoundError as e:
 
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
-# Función para asignar color según nivel
-def obtener_colores(niveles):
-    return niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"})
+# =================== Obtener DataFrames ===================
+dfs = []  # lista de (nombre, df)
 
-# Rango de visualización
-fecha_inicio = pd.to_datetime("2025-01-15")
-fecha_fin = pd.to_datetime("2025-09-01")
+if fuente == "Automático (CSV público)":
+    st.caption(f"Fuente CSV: {CSV_URL}")
+    try:
+        df_auto = load_public_csv()
+        dfs.append(("MeteoBahia_CSV", df_auto))
+        st.success(f"CSV público cargado: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
+    except Exception as e:
+        st.error(f"No se pudo leer el CSV público: {e}. Probá más tarde o usa 'Subir Excel'.")
 
-if uploaded_files:
-    for file in uploaded_files:
-        df = pd.read_excel(file)
-        if not all(col in df.columns for col in ["Julian_days", "TMAX", "TMIN", "Prec"]):
-            st.warning(f"{file.name} no tiene las columnas requeridas.")
+else:  # Subir Excel
+    uploaded_files = st.file_uploader(
+        "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
+        type=["xlsx"], accept_multiple_files=True
+    )
+    if uploaded_files:
+        for file in uploaded_files:
+            df_up = pd.read_excel(file)
+            ok, msg = validar_columnas(df_up)
+            if not ok:
+                st.warning(f"{file.name}: {msg}")
+                continue
+            if "Fecha" not in df_up.columns:
+                # reconstruye Fecha desde el año actual si no viene
+                year = pd.Timestamp.now().year
+                df_up["Fecha"] = pd.to_datetime(f"{year}-01-01") + pd.to_timedelta(df_up["Julian_days"] - 1, unit="D")
+            dfs.append((Path(file.name).stem, df_up))
+    else:
+        st.info("Sube al menos un archivo .xlsx para iniciar el análisis.")
+
+# =================== Procesamiento y gráficos ===================
+if dfs:
+    for nombre, df in dfs:
+        # Validación + orden
+        ok, msg = validar_columnas(df)
+        if not ok:
+            st.warning(f"{nombre}: {msg}")
             continue
 
-        X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy()
-        fechas = pd.to_datetime("2025-01-01") + pd.to_timedelta(df["Julian_days"] - 1, unit="D")
-        pred = modelo.predict(X_real)
+        df = df.sort_values("Julian_days").reset_index(drop=True)
 
+        # Entradas al modelo
+        X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
+        fechas = pd.to_datetime(df["Fecha"])
+
+        # Aviso: entradas fuera del rango de entrenamiento
+        if detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
+            st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
+
+        pred = modelo.predict(X_real)
         pred["Fecha"] = fechas
         pred["Julian_days"] = df["Julian_days"]
         pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
-
-        # Media móvil 5 días para EMERREL
         pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
 
-        # Umbrales
+        # Umbrales y % EMEAC
         pred["EMEAC (0-1) - mínimo"] = pred["EMERREL acumulado"] / 1.2
         pred["EMEAC (0-1) - máximo"] = pred["EMERREL acumulado"] / 3.0
         pred["EMEAC (0-1) - ajustable"] = pred["EMERREL acumulado"] / umbral_usuario
@@ -121,17 +175,17 @@ if uploaded_files:
         pred["EMEAC (%) - máximo"] = pred["EMEAC (0-1) - máximo"] * 100
         pred["EMEAC (%) - ajustable"] = pred["EMEAC (0-1) - ajustable"] * 100
 
-        nombre = Path(file.name).stem
         colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
-        # Calcular media móvil de 5 días
-        pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
+        # Rango de fechas dinámico
+        fecha_inicio = pred["Fecha"].min()
+        fecha_fin = pred["Fecha"].max()
 
-        # Gráfico EMERREL
+        # --------- Gráfico EMERREL ---------
         st.subheader(f"EMERREL (0-1) - {nombre}")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
         ax_er.bar(pred["Fecha"], pred["EMERREL(0-1)"], color=colores)
-        ax_er.plot(pred["Fecha"], pred["EMERREL_MA5"], color="blue", linewidth=2.2, label="Media móvil 5 días")
+        ax_er.plot(pred["Fecha"], pred["EMERREL_MA5"], linewidth=2.2, label="Media móvil 5 días")
         ax_er.legend(loc="upper right")
         ax_er.set_title(f"Emergencia Relativa Diaria - {nombre}")
         ax_er.set_xlabel("Fecha")
@@ -143,16 +197,18 @@ if uploaded_files:
         plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_er)
 
-        # Gráfico EMEAC con área y líneas
+        # --------- Gráfico EMEAC ---------
         st.subheader(f"EMEAC (%) - {nombre}")
         fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
-        ax.fill_between(pred["Fecha"], pred["EMEAC (%) - mínimo"], pred["EMEAC (%) - máximo"], color="lightgray", alpha=0.4, label="Rango entre mínimo y máximo")
-        ax.plot(pred["Fecha"], pred["EMEAC (%) - ajustable"], color="blue", linewidth=2.5, label="Umbral ajustable")
-        ax.plot(pred["Fecha"], pred["EMEAC (%) - mínimo"], linestyle='--', color="black", linewidth=1.5, label="Umbral mínimo")
-        ax.plot(pred["Fecha"], pred["EMEAC (%) - máximo"], linestyle='--', color="black", linewidth=1.5, label="Umbral máximo")
+        ax.fill_between(pred["Fecha"], pred["EMEAC (%) - mínimo"], pred["EMEAC (%) - máximo"], alpha=0.4, label="Rango entre mínimo y máximo")
+        ax.plot(pred["Fecha"], pred["EMEAC (%) - ajustable"], linewidth=2.5, label="Umbral ajustable")
+        ax.plot(pred["Fecha"], pred["EMEAC (%) - mínimo"], linestyle='--', linewidth=1.5, label="Umbral mínimo")
+        ax.plot(pred["Fecha"], pred["EMEAC (%) - máximo"], linestyle='--', linewidth=1.5, label="Umbral máximo")
 
-        for nivel, color in zip([25, 50, 75, 90], ['gray', 'green', 'orange', 'red']):
-            ax.axhline(nivel, linestyle='--', color=color, linewidth=1.5, label=f'90%')
+        # Líneas horizontales + leyenda sin duplicados
+        niveles = [25, 50, 75, 90]
+        for nivel in niveles:
+            ax.axhline(nivel, linestyle='--', linewidth=1.2, label=f'{nivel}%')
 
         ax.set_title(f"Progreso EMEAC (%) - {nombre}")
         ax.set_xlabel("Fecha")
@@ -162,30 +218,20 @@ if uploaded_files:
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.xaxis.set_major_locator(mdates.MonthLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-        # Leyenda manual para líneas horizontales
-        from matplotlib.lines import Line2D
-        lineas_referencia = [
-            Line2D([0], [0], color=color, linestyle='--', linewidth=1.5, label=f'{nivel}%')
-            for nivel, color in zip([25, 50, 75, 90], ['gray', 'green', 'orange', 'red'])
-        ]
+
         handles, labels = ax.get_legend_handles_labels()
-        from matplotlib.lines import Line2D
-        custom_legend = [
-            Line2D([0], [0], color="lightgray", linewidth=10, alpha=0.4, label="Rango entre mínimo y máximo"),
-            Line2D([0], [0], color="blue", linewidth=2.5, label="Umbral ajustable"),
-            Line2D([0], [0], color="black", linestyle='--', linewidth=1.5, label="Umbral mínimo"),
-            Line2D([0], [0], color="black", linestyle='--', linewidth=1.5, label="Umbral máximo")
-        ]
-        ax.legend(handles=custom_legend, title="Referencias", loc="lower right")
+        seen = set()
+        handles_dedup, labels_dedup = [], []
+        for h, l in zip(handles, labels):
+            if l not in seen:
+                handles_dedup.append(h); labels_dedup.append(l); seen.add(l)
+        ax.legend(handles_dedup, labels_dedup, title="Referencias", loc="lower right")
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
-        # Tabla de resultados
+        # --------- Tabla y descarga ---------
         st.subheader(f"Datos calculados - {nombre}")
         columnas = ["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%) - ajustable"]
-        st.dataframe(pred[columnas])
+        st.dataframe(pred[columnas], use_container_width=True)
         csv = pred[columnas].to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
-
-else:
-    st.info("Sube al menos un archivo .xlsx para iniciar el análisis.")
