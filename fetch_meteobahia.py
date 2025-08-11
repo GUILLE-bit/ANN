@@ -1,4 +1,3 @@
-# fetch_meteobahia.py
 import time
 import requests
 import pandas as pd
@@ -31,8 +30,10 @@ def fetch_xml(url=URL, timeout=30, retries=3, backoff=2):
     raise RuntimeError(f"Fetch failed: {last}")
 
 def to_f(x):
-    try: return float(str(x).replace(",", "."))
-    except: return None
+    try:
+        return float(str(x).replace(",", "."))
+    except:
+        return None
 
 def parse_daily(xml_bytes: bytes) -> pd.DataFrame:
     root = ET.fromstring(xml_bytes)
@@ -44,7 +45,7 @@ def parse_daily(xml_bytes: bytes) -> pd.DataFrame:
         tmin   = d.find("./tmin")
         precip = d.find("./precip")
         fv = fecha.get("value") if fecha is not None else None
-        if not fv: 
+        if not fv:
             continue
         rows.append({
             "Fecha": pd.to_datetime(fv).normalize(),
