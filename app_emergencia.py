@@ -58,7 +58,7 @@ class PracticalANNModel:
         })
 
 # =================== Carga de datos (CSV público o Excel) ===================
-CSV_URL = "https://GUILLE-bit.github.io/METEO/meteo_daily.csv"
+CSV_URL = "https://GUILLE-bit.github.io/ANN/meteo_daily.csv"
 
 @st.cache_data(ttl=900)  # 15 min
 def load_public_csv():
