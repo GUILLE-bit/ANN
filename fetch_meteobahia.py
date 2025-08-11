@@ -1,49 +1,66 @@
-name: fetch-meteo
-on:
-  schedule:
-    - cron: "0 */6 * * *"   # cada 6 horas (UTC)
-  workflow_dispatch:
-permissions:
-  contents: write
+# fetch_meteobahia.py
+import time
+import requests
+import pandas as pd
+import xml.etree.ElementTree as ET
+from pathlib import Path
 
-jobs:
-  run:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+URL = "https://meteobahia.com.ar/scripts/forecast/for-bd.xml"
+OUT = Path("data/meteo_daily.csv")
+OUT.parent.mkdir(parents=True, exist_ok=True)
 
-      - name: Safe git dir (evita 'dubious ownership')
-        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/125.0.0.0 Safari/537.36"),
+    "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.8",
+    "Referer": "https://meteobahia.com.ar/",
+    "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+}
 
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
+def fetch_xml(url=URL, timeout=30, retries=3, backoff=2):
+    last = None
+    for i in range(retries):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=timeout)
+            r.raise_for_status()
+            return r.content
+        except Exception as e:
+            last = e
+            time.sleep(backoff*(i+1))
+    raise RuntimeError(f"Fetch failed: {last}")
 
-      - run: pip install pandas requests
+def to_f(x):
+    try: return float(str(x).replace(",", "."))
+    except: return None
 
-      # --- Diagnóstico rápido del endpoint (cabeceras + HTTP code) ---
-      - name: Probe endpoint (HEAD)
-        run: |
-          set -e
-          curl -sS -I "https://meteobahia.com.ar/scripts/forecast/for-bd.xml" || true
+def parse_daily(xml_bytes: bytes) -> pd.DataFrame:
+    root = ET.fromstring(xml_bytes)
+    days = root.findall(".//forecast/tabular/day")
+    rows = []
+    for d in days:
+        fecha  = d.find("./fecha")
+        tmax   = d.find("./tmax")
+        tmin   = d.find("./tmin")
+        precip = d.find("./precip")
+        fv = fecha.get("value") if fecha is not None else None
+        if not fv: 
+            continue
+        rows.append({
+            "Fecha": pd.to_datetime(fv).normalize(),
+            "TMAX": to_f(tmax.get("value") if tmax is not None else None),
+            "TMIN": to_f(tmin.get("value") if tmin is not None else None),
+            "Prec": to_f(precip.get("value")) if precip is not None else 0.0,
+        })
+    if not rows:
+        raise RuntimeError("XML sin <day> válidos.")
+    df = pd.DataFrame(rows).sort_values("Fecha").reset_index(drop=True)
+    df["Julian_days"] = df["Fecha"].dt.dayofyear
+    return df[["Fecha","Julian_days","TMAX","TMIN","Prec"]]
 
-      # --- Ejecuta el fetch: genera data/meteo_daily.csv ---
-      - name: Run fetch
-        run: python fetch_meteobahia.py
+if __name__ == "__main__":
+    xmlb = fetch_xml()
+    df = parse_daily(xmlb)
+    df.to_csv(OUT, index=False)
+    print(f"OK -> {OUT} ({len(df)} filas)")
 
-      # Guarda como artefacto (útil para inspeccionar si algo falla)
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: meteo_csv
-          path: data/meteo_daily.csv
-          if-no-files-found: error
-
-      # --- Publica a gh-pages con una acción estable ---
-      - name: Publish to gh-pages
-        uses: peaceiris/actions-gh-pages@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          publish_branch: gh-pages
-          publish_dir: data
-          # Dejará disponible: https://GUILLE-bit.github.io/ANN/meteo_daily.csv
