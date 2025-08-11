@@ -1,0 +1,39 @@
+name: fetch-meteo
+on:
+  schedule:
+    - cron: "0 */6 * * *"   # corre cada 6 horas (UTC)
+  workflow_dispatch:        # permite ejecutarlo manualmente
+permissions:
+  contents: write
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - run: pip install pandas requests
+
+      - name: Run fetch
+        run: python fetch_meteobahia.py
+
+      - name: Publish to gh-pages
+        run: |
+          mkdir -p public
+          cp data/meteo_daily.csv public/
+          echo "Last-Updated: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" > public/last_updated.txt
+          touch public/.nojekyll
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git fetch origin gh-pages || true
+          git checkout -B gh-pages
+          cp -r public/* .
+          git add meteo_daily.csv last_updated.txt .nojekyll
+          git commit -m "update data" || echo "no changes"
+          git push -f origin gh-pages
