@@ -1,0 +1,109 @@
+# fetch_meteobahia.py
+# Descarga el XML de MeteoBahía, lo parsea y publica un CSV diario para la app.
+# Uso: python fetch_meteobahia.py
+# Variables de entorno opcionales:
+#   MB_API_URL, OUT_DIR, OUT_CSV_NAME, MAX_RETRIES, REQ_TIMEOUT, BACKOFF_BASE
+
+import os
+import time
+import requests
+import pandas as pd
+import xml.etree.ElementTree as ET
+from pathlib import Path
+
+MB_API_URL   = os.getenv("MB_API_URL", "https://meteobahia.com.ar/scripts/forecast/for-bd.xml")
+OUT_DIR      = Path(os.getenv("OUT_DIR", "data"))
+OUT_CSV_NAME = os.getenv("OUT_CSV_NAME", "meteo_daily.csv")
+
+MAX_RETRIES  = int(os.getenv("MAX_RETRIES", "3"))
+REQ_TIMEOUT  = int(os.getenv("REQ_TIMEOUT", "30"))
+BACKOFF_BASE = float(os.getenv("BACKOFF_BASE", "2"))
+
+HEADERS = {
+    "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "Chrome/125.0.0.0 Safari/537.36"),
+    "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.8",
+    "Referer": "https://meteobahia.com.ar/",
+    "Accept-Language": "es-AR,es;q=0.9,en;q=0.8",
+    "Connection": "keep-alive",
+}
+
+def fetch_xml(url: str = MB_API_URL) -> bytes:
+    last_err = None
+    for i in range(MAX_RETRIES):
+        try:
+            r = requests.get(url, headers=HEADERS, timeout=REQ_TIMEOUT)
+            r.raise_for_status()
+            return r.content
+        except Exception as e:
+            last_err = e
+            sleep_s = BACKOFF_BASE * (i + 1)
+            print(f"[fetch] intento {i+1}/{MAX_RETRIES} falló: {e} -> reintento en {sleep_s:.1f}s")
+            time.sleep(sleep_s)
+    raise RuntimeError(f"No se pudo descargar el XML: {last_err}")
+
+def _to_float(x):
+    try:
+        return float(str(x).replace(",", "."))
+    except:
+        return None
+
+def parse_daily(xml_bytes: bytes) -> pd.DataFrame:
+    """
+    Espera estructura:
+    <weatherdata><forecast><tabular>
+      <day>
+        <fecha value="YYYY-MM-DD"/>
+        <tmax value=".."/><tmin value=".."/><precip value=".."/>
+      </day>...
+    """
+    root = ET.fromstring(xml_bytes)
+    days = root.findall(".//forecast/tabular/day")
+    rows = []
+    for d in days:
+        fecha = d.find("./fecha")
+        tmax  = d.find("./tmax")
+        tmin  = d.find("./tmin")
+        precip = d.find("./precip")
+
+        fecha_val  = fecha.get("value")  if fecha  is not None else None
+        tmax_val   = tmax.get("value")   if tmax   is not None else None
+        tmin_val   = tmin.get("value")   if tmin   is not None else None
+        precip_val = precip.get("value") if precip is not None else None
+
+        if not fecha_val:
+            continue
+
+        rows.append({
+            "Fecha": pd.to_datetime(fecha_val).normalize(),
+            "TMAX":  _to_float(tmax_val),
+            "TMIN":  _to_float(tmin_val),
+            "Prec":  _to_float(precip_val) if precip_val is not None else 0.0,
+        })
+
+    if not rows:
+        raise RuntimeError("No se encontraron nodos <day> con datos en el XML.")
+
+    df = pd.DataFrame(rows).sort_values("Fecha").reset_index(drop=True)
+    df["Julian_days"] = df["Fecha"].dt.dayofyear
+    return df[["Fecha", "Julian_days", "TMAX", "TMIN", "Prec"]]
+
+def main():
+    print(f"[info] URL: {MB_API_URL}")
+    xmlb = fetch_xml()
+    df = parse_daily(xmlb)
+
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    out_csv = OUT_DIR / OUT_CSV_NAME
+    df.to_csv(out_csv, index=False)
+
+    print(f"[ok] Guardado {out_csv} con {len(df)} filas")
+    print(df.tail(3).to_string(index=False))
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception as e:
+        print(f"[error] {e}")
+        raise
