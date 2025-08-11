@@ -63,4 +63,3 @@ if __name__ == "__main__":
     df = parse_daily(xmlb)
     df.to_csv(OUT, index=False)
     print(f"OK -> {OUT} ({len(df)} filas)")
-
