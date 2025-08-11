@@ -115,7 +115,7 @@ if uploaded_files:
 
         # Umbrales
         pred["EMEAC (0-1) - mínimo"] = pred["EMERREL acumulado"] / 1.2
-        pred["EMEAC (0-1) - máximo"] = pred["EMERREL acumulado"] / 2.9
+        pred["EMEAC (0-1) - máximo"] = pred["EMERREL acumulado"] / 3.0
         pred["EMEAC (0-1) - ajustable"] = pred["EMERREL acumulado"] / umbral_usuario
         pred["EMEAC (%) - mínimo"] = pred["EMEAC (0-1) - mínimo"] * 100
         pred["EMEAC (%) - máximo"] = pred["EMEAC (0-1) - máximo"] * 100
