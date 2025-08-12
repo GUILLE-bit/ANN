@@ -8,7 +8,7 @@ from pathlib import Path
 
 st.set_page_config(page_title="Predicción de Emergencia Agrícola con ANN", layout="wide")
 
-# =================== Modelo ANN (tu lógica original) ===================
+# =================== Modelo ANN ===================
 class PracticalANNModel:
     def __init__(self, IW, bias_IW, LW, bias_out):
         self.IW = IW
@@ -167,7 +167,7 @@ if dfs:
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
         fechas = pd.to_datetime(df["Fecha"])
 
-        # (Opcional) desactivar aviso fuera de rango
+        # (Opcional) aviso fuera de rango desactivado
         # if detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
         #     st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
 
@@ -268,11 +268,14 @@ if dfs:
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
-        # --------- Tabla y descarga (solo EMEAC (%) y Nivel de EMERREL) ---------
+        # --------- Tabla y descarga (Fecha, Julian_days, EMEAC (%) y Nivel de EMERREL) ---------
         st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
         col_emeac = "EMEAC (%) - ajustable (rango)" if "EMEAC (%) - ajustable (rango)" in pred_vis.columns else "EMEAC (%) - ajustable"
-        tabla = pred_vis[["Nivel_Emergencia_relativa", col_emeac]].rename(
-            columns={"Nivel_Emergencia_relativa": "Nivel de EMERREL", col_emeac: "EMEAC (%)"}
+        tabla = pred_vis[["Fecha", "Julian_days", "Nivel_Emergencia_relativa", col_emeac]].rename(
+            columns={
+                "Nivel_Emergencia_relativa": "Nivel de EMERREL",
+                col_emeac: "EMEAC (%)"
+            }
         )
         st.dataframe(tabla, use_container_width=True)
         csv = tabla.to_csv(index=False).encode("utf-8")
