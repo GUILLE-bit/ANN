@@ -57,29 +57,25 @@ class PracticalANNModel:
             "Nivel_Emergencia_relativa": riesgo
         })
 
-# =================== Carga de datos (CSV público o Excel) ===================
-
+# =================== Config de fuentes (CSV público) ===================
 CSV_URL_PAGES = "https://GUILLE-bit.github.io/ANN/meteo_daily.csv"
 CSV_URL_RAW   = "https://raw.githubusercontent.com/GUILLE-bit/ANN/gh-pages/meteo_daily.csv"
 
-@st.cache_data(ttl=900)
-def load_public_csv():
-    import pandas as pd, urllib.error
-    try:
-        return pd.read_csv(CSV_URL_PAGES, parse_dates=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
-    except Exception as e_pages:
-        # Fallback al raw si Pages no está (404) o tarda en propagarse
-        return pd.read_csv(CSV_URL_RAW, parse_dates=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
-
 @st.cache_data(ttl=900)  # 15 min
 def load_public_csv():
-    df = pd.read_csv(CSV_URL, parse_dates=["Fecha"])
-    # Garantiza columnas y orden
-    req = ["Fecha", "Julian_days", "TMAX", "TMIN", "Prec"]
-    faltan = set(req) - set(df.columns)
-    if faltan:
-        raise ValueError(f"CSV público no tiene columnas requeridas: {', '.join(sorted(faltan))}")
-    return df.sort_values("Julian_days").reset_index(drop=True)
+    last_err = None
+    for url in (CSV_URL_PAGES, CSV_URL_RAW):
+        try:
+            df = pd.read_csv(url, parse_dates=["Fecha"])
+            req = {"Fecha", "Julian_days", "TMAX", "TMIN", "Prec"}
+            faltan = req - set(df.columns)
+            if faltan:
+                raise ValueError(f"Faltan columnas en CSV público: {', '.join(sorted(faltan))}")
+            df = df.sort_values("Fecha").reset_index(drop=True)
+            return df, url
+        except Exception as e:
+            last_err = e
+    raise RuntimeError(f"No pude leer el CSV ni desde Pages ni desde Raw. Último error: {last_err}")
 
 def validar_columnas(df: pd.DataFrame) -> tuple[bool, str]:
     req = {"Julian_days", "TMAX", "TMIN", "Prec"}
@@ -108,6 +104,10 @@ umbral_usuario = st.sidebar.number_input(
     min_value=1.2, max_value=3.0, value=2.90, step=0.01, format="%.2f"
 )
 
+# Botón para forzar recarga de datos cacheados
+if st.sidebar.button("Forzar recarga de datos"):
+    st.cache_data.clear()
+
 # Cargar pesos del modelo
 base = Path(__file__).parent
 try:
@@ -125,15 +125,15 @@ modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 dfs = []  # lista de (nombre, df)
 
 if fuente == "Automático (CSV público)":
-    st.caption(f"Fuente CSV: {CSV_URL}")
     try:
-        df_auto = load_public_csv()
+        df_auto, url_usada = load_public_csv()
         dfs.append(("MeteoBahia_CSV", df_auto))
-        st.success(f"CSV público cargado: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
+        st.caption(f"Fuente CSV primaria: {CSV_URL_PAGES}")
+        st.caption(f"Fuente CSV alternativa (fallback): {CSV_URL_RAW}")
+        st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
     except Exception as e:
-        st.error(f"No se pudo leer el CSV público: {e}. Probá más tarde o usa 'Subir Excel'.")
-
-else:  # Subir Excel
+        st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
+else:
     uploaded_files = st.file_uploader(
         "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
         type=["xlsx"], accept_multiple_files=True
@@ -146,7 +146,6 @@ else:  # Subir Excel
                 st.warning(f"{file.name}: {msg}")
                 continue
             if "Fecha" not in df_up.columns:
-                # reconstruye Fecha desde el año actual si no viene
                 year = pd.Timestamp.now().year
                 df_up["Fecha"] = pd.to_datetime(f"{year}-01-01") + pd.to_timedelta(df_up["Julian_days"] - 1, unit="D")
             dfs.append((Path(file.name).stem, df_up))
@@ -246,3 +245,4 @@ if dfs:
         st.dataframe(pred[columnas], use_container_width=True)
         csv = pred[columnas].to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
+
