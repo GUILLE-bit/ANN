@@ -15,7 +15,7 @@ jobs:
 
       - name: Show first lines of fetch_meteobahia.py
         run: |
-          echo "=== fetch_meteobahia.py HEAD ==="
+          echo "=== HEAD fetch_meteobahia.py ==="
           nl -ba fetch_meteobahia.py | sed -n '1,30p'
 
       - uses: actions/setup-python@v5
