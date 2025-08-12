@@ -1,51 +1,55 @@
 name: fetch-meteo
 on:
   schedule:
-    - cron: "0 */6 * * *"
+    - cron: '0 */6 * * *'
   workflow_dispatch:
+
 permissions:
   contents: write
 
 jobs:
-  run:
+  fetch_publish:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
-      - name: Show first lines of fetch_meteobahia.py
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install deps
+        run: pip install pandas requests openpyxl
+
+      - name: List files
         run: |
-          echo "=== HEAD fetch_meteobahia.py ==="
-          nl -ba fetch_meteobahia.py | sed -n '1,30p'
+          pwd
+          ls -lah
+          ls -lah data || true
 
-      - uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
-        
-      - run: pip install pandas requests openpyxl
-      - run: pip install pandas requests
-      
-    - name: List files
-  run: |
-    pwd
-    ls -lah
-    ls -lah data || true
-
-- name: Probe historico.xlsx
-  run: |
-    python - <<'PY'
-    import pandas as pd, sys
-    try:
-        df = pd.read_excel("data/historico.xlsx")
-        print("[ok] historico.xlsx leído")
-        print("Columnas:", list(df.columns))
-        print(df.head(5).to_string(index=False))
-    except Exception as e:
-        print("[err] No se pudo leer data/historico.xlsx:", e)
-        sys.exit(0)
-    PY
+      - name: Probe historico.xlsx
+        run: |
+          python - <<'PY'
+          import os, pandas as pd
+          p="data/historico.xlsx"
+          if os.path.exists(p):
+              df=pd.read_excel(p)
+              print("[ok] historico.xlsx", df.shape, list(df.columns))
+              print(df.head(5).to_string(index=False))
+          else:
+              print("[warn] no existe", p)
+          PY
 
       - name: Run fetch
         run: python fetch_meteobahia.py
+
+      - name: Inspect output
+        run: |
+          ls -lah data
+          head -n 20 data/meteo_daily.csv
 
       - name: Publish to gh-pages
         uses: peaceiris/actions-gh-pages@v3
