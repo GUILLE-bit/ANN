@@ -167,9 +167,9 @@ if dfs:
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
         fechas = pd.to_datetime(df["Fecha"])
 
-        # Aviso: entradas fuera del rango de entrenamiento
-        #if detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
-        #    st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
+        # Aviso desactivado
+        # if detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
+        #     st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
 
         pred = modelo.predict(X_real)
         pred["Fecha"] = fechas
@@ -177,7 +177,7 @@ if dfs:
         pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
         pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
 
-        # Umbrales y % EMEAC
+        # Umbrales y % EMEAC (acumulado anual)
         pred["EMEAC (0-1) - mínimo"] = pred["EMERREL acumulado"] / 1.2
         pred["EMEAC (0-1) - máximo"] = pred["EMERREL acumulado"] / 3.0
         pred["EMEAC (0-1) - ajustable"] = pred["EMERREL acumulado"] / umbral_usuario
@@ -187,51 +187,82 @@ if dfs:
 
         colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
-        # Rango de fechas dinámico
-        fecha_inicio = pred["Fecha"].min()
-        fecha_fin = pred["Fecha"].max()
+        # --- Rango 1/feb → 1/sep (reinicio) ---
+        years = pred["Fecha"].dt.year.unique()
+        if len(years) == 1:
+            yr = int(years[0])
+        else:
+            yr = int(st.sidebar.selectbox("Año a mostrar (reinicio 1/feb → 1/sep)", sorted(years)))
 
-        # --------- Gráfico EMERREL ---------
-        st.subheader(f"EMERREL (0-1) - {nombre}")
+        fecha_inicio_rango = pd.Timestamp(year=yr, month=2, day=1)
+        fecha_fin_rango    = pd.Timestamp(year=yr, month=9, day=1)
+
+        mask = (pred["Fecha"] >= fecha_inicio_rango) & (pred["Fecha"] <= fecha_fin_rango)
+        pred_vis = pred.loc[mask].copy()
+
+        if pred_vis.empty:
+            st.warning(f"No hay datos entre {fecha_inicio_rango.date()} y {fecha_fin_rango.date()} para {nombre}.")
+            continue
+
+        # Recalcular acumulados y % EMEAC dentro del rango (reiniciados)
+        pred_vis["EMERREL acumulado (reiniciado)"] = pred_vis["EMERREL(0-1)"].cumsum()
+        pred_vis["EMEAC (0-1) - mínimo (rango)"]    = pred_vis["EMERREL acumulado (reiniciado)"] / 1.2
+        pred_vis["EMEAC (0-1) - máximo (rango)"]    = pred_vis["EMERREL acumulado (reiniciado)"] / 3.0
+        pred_vis["EMEAC (0-1) - ajustable (rango)"] = pred_vis["EMERREL acumulado (reiniciado)"] / umbral_usuario
+        pred_vis["EMEAC (%) - mínimo (rango)"]      = pred_vis["EMEAC (0-1) - mínimo (rango)"] * 100
+        pred_vis["EMEAC (%) - máximo (rango)"]      = pred_vis["EMEAC (0-1) - máximo (rango)"] * 100
+        pred_vis["EMEAC (%) - ajustable (rango)"]   = pred_vis["EMEAC (0-1) - ajustable (rango)"] * 100
+
+        # Media móvil dentro del rango (para que no arrastre de antes)
+        pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
+        colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
+
+        # --------- Gráfico EMERREL (rango) ---------
+        st.subheader(f"EMERREL (0-1) · {nombre} · {fecha_inicio_rango.date()} → {fecha_fin_rango.date()} (reinicio 1/feb)")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
-        ax_er.bar(pred["Fecha"], pred["EMERREL(0-1)"], color=colores)
-        ax_er.plot(pred["Fecha"], pred["EMERREL_MA5"], linewidth=2.2, label="Media móvil 5 días")
+        ax_er.bar(pred_vis["Fecha"], pred_vis["EMERREL(0-1)"], color=colores_vis)
+        ax_er.plot(pred_vis["Fecha"], pred_vis["EMERREL_MA5_rango"], linewidth=2.2, label="Media móvil 5 días (rango)")
         ax_er.legend(loc="upper right")
-        ax_er.set_title(f"Emergencia Relativa Diaria - {nombre}")
+        ax_er.set_title(f"Emergencia Relativa Diaria (reiniciada 1/feb) - {nombre}")
         ax_er.set_xlabel("Fecha")
         ax_er.set_ylabel("EMERREL (0-1)")
         ax_er.grid(True, linestyle="--", alpha=0.5)
-        ax_er.set_xlim(fecha_inicio, fecha_fin)
+        ax_er.set_xlim(fecha_inicio_rango, fecha_fin_rango)
         ax_er.xaxis.set_major_locator(mdates.MonthLocator())
         ax_er.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
         plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_er)
 
-        # --------- Gráfico EMEAC ---------
-        st.subheader(f"EMEAC (%) - {nombre}")
+        # --------- Gráfico EMEAC (rango) ---------
+        st.subheader(f"EMEAC (%) · {nombre} · {fecha_inicio_rango.date()} → {fecha_fin_rango.date()} (reinicio 1/feb)")
         fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
-        ax.fill_between(pred["Fecha"], pred["EMEAC (%) - mínimo"], pred["EMEAC (%) - máximo"], alpha=0.4, label="Rango entre mínimo y máximo")
-        ax.plot(pred["Fecha"], pred["EMEAC (%) - ajustable"], linewidth=2.5, label="Umbral ajustable")
-        ax.plot(pred["Fecha"], pred["EMEAC (%) - mínimo"], linestyle='--', linewidth=1.5, label="Umbral mínimo")
-        ax.plot(pred["Fecha"], pred["EMEAC (%) - máximo"], linestyle='--', linewidth=1.5, label="Umbral máximo")
+        ax.fill_between(pred_vis["Fecha"],
+                        pred_vis["EMEAC (%) - mínimo (rango)"],
+                        pred_vis["EMEAC (%) - máximo (rango)"],
+                        alpha=0.4, label="Rango entre mínimo y máximo (reiniciado)")
+        ax.plot(pred_vis["Fecha"], pred_vis["EMEAC (%) - ajustable (rango)"], linewidth=2.5,
+                label="Umbral ajustable (reiniciado)")
+        ax.plot(pred_vis["Fecha"], pred_vis["EMEAC (%) - mínimo (rango)"], linestyle='--', linewidth=1.5,
+                label="Umbral mínimo (reiniciado)")
+        ax.plot(pred_vis["Fecha"], pred_vis["EMEAC (%) - máximo (rango)"], linestyle='--', linewidth=1.5,
+                label="Umbral máximo (reiniciado)")
 
         # Líneas horizontales + leyenda sin duplicados
         niveles = [25, 50, 75, 90]
         for nivel in niveles:
             ax.axhline(nivel, linestyle='--', linewidth=1.2, label=f'{nivel}%')
 
-        ax.set_title(f"Progreso EMEAC (%) - {nombre}")
+        ax.set_title(f"Progreso EMEAC (%) (reinicio 1/feb) - {nombre}")
         ax.set_xlabel("Fecha")
         ax.set_ylabel("EMEAC (%)")
         ax.set_ylim(0, 100)
-        ax.set_xlim(fecha_inicio, fecha_fin)
+        ax.set_xlim(fecha_inicio_rango, fecha_fin_rango)
         ax.grid(True, linestyle="--", alpha=0.5)
         ax.xaxis.set_major_locator(mdates.MonthLocator())
         ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
 
         handles, labels = ax.get_legend_handles_labels()
-        seen = set()
-        handles_dedup, labels_dedup = [], []
+        seen = set(); handles_dedup, labels_dedup = [], []
         for h, l in zip(handles, labels):
             if l not in seen:
                 handles_dedup.append(h); labels_dedup.append(l); seen.add(l)
@@ -239,10 +270,11 @@ if dfs:
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
-        # --------- Tabla y descarga ---------
-        st.subheader(f"Datos calculados - {nombre}")
-        columnas = ["Fecha", "Nivel_Emergencia_relativa", "EMEAC (%) - ajustable"]
-        st.dataframe(pred[columnas], use_container_width=True)
-        csv = pred[columnas].to_csv(index=False).encode("utf-8")
-        st.download_button(f"Descargar CSV - {nombre}", csv, f"{nombre}_EMEAC.csv", "text/csv")
+        # --------- Tabla y descarga (rango) ---------
+        st.subheader(f"Datos calculados (reinicio 1/feb) - {nombre}")
+        columnas = ["Fecha", "Nivel_Emergencia_relativa",
+                    "EMERREL(0-1)", "EMERREL acumulado (reiniciado)", "EMEAC (%) - ajustable (rango)"]
+        st.dataframe(pred_vis[columnas], use_container_width=True)
+        csv = pred_vis[columnas].to_csv(index=False).encode("utf-8")
+        st.download_button(f"Descargar CSV (rango) - {nombre}", csv, f"{nombre}_EMEAC_rango.csv", "text/csv")
 
