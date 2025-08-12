@@ -58,7 +58,18 @@ class PracticalANNModel:
         })
 
 # =================== Carga de datos (CSV público o Excel) ===================
-CSV_URL = "https://GUILLE-bit.github.io/ANN/meteo_daily.csv"
+
+CSV_URL_PAGES = "https://GUILLE-bit.github.io/ANN/meteo_daily.csv"
+CSV_URL_RAW   = "https://raw.githubusercontent.com/GUILLE-bit/ANN/gh-pages/meteo_daily.csv"
+
+@st.cache_data(ttl=900)
+def load_public_csv():
+    import pandas as pd, urllib.error
+    try:
+        return pd.read_csv(CSV_URL_PAGES, parse_dates=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
+    except Exception as e_pages:
+        # Fallback al raw si Pages no está (404) o tarda en propagarse
+        return pd.read_csv(CSV_URL_RAW, parse_dates=["Fecha"]).sort_values("Fecha").reset_index(drop=True)
 
 @st.cache_data(ttl=900)  # 15 min
 def load_public_csv():
