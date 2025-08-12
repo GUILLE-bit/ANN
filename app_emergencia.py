@@ -167,7 +167,7 @@ if dfs:
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
         fechas = pd.to_datetime(df["Fecha"])
 
-        # Aviso desactivado
+        # (Opcional) desactivar aviso fuera de rango
         # if detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
         #     st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
 
@@ -184,8 +184,6 @@ if dfs:
         pred["EMEAC (%) - mínimo"] = pred["EMEAC (0-1) - mínimo"] * 100
         pred["EMEAC (%) - máximo"] = pred["EMEAC (0-1) - máximo"] * 100
         pred["EMEAC (%) - ajustable"] = pred["EMEAC (0-1) - ajustable"] * 100
-
-        colores = obtener_colores(pred["Nivel_Emergencia_relativa"])
 
         # --- Rango 1/feb → 1/sep (reinicio) ---
         years = pred["Fecha"].dt.year.unique()
@@ -213,7 +211,7 @@ if dfs:
         pred_vis["EMEAC (%) - máximo (rango)"]      = pred_vis["EMEAC (0-1) - máximo (rango)"] * 100
         pred_vis["EMEAC (%) - ajustable (rango)"]   = pred_vis["EMEAC (0-1) - ajustable (rango)"] * 100
 
-        # Media móvil dentro del rango (para que no arrastre de antes)
+        # Media móvil dentro del rango
         pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
@@ -270,11 +268,13 @@ if dfs:
         plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig)
 
-        # --------- Tabla y descarga (rango) ---------
-        st.subheader(f"Datos calculados (reinicio 1/feb) - {nombre}")
-        columnas = ["Fecha", "Nivel_Emergencia_relativa",
-                    "EMERREL(0-1)", "EMERREL acumulado (reiniciado)", "EMEAC (%) - ajustable (rango)"]
-        st.dataframe(pred_vis[columnas], use_container_width=True)
-        csv = pred_vis[columnas].to_csv(index=False).encode("utf-8")
-        st.download_button(f"Descargar CSV (rango) - {nombre}", csv, f"{nombre}_EMEAC_rango.csv", "text/csv")
+        # --------- Tabla y descarga (solo EMEAC (%) y Nivel de EMERREL) ---------
+        st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
+        col_emeac = "EMEAC (%) - ajustable (rango)" if "EMEAC (%) - ajustable (rango)" in pred_vis.columns else "EMEAC (%) - ajustable"
+        tabla = pred_vis[["Nivel_Emergencia_relativa", col_emeac]].rename(
+            columns={"Nivel_Emergencia_relativa": "Nivel de EMERREL", col_emeac: "EMEAC (%)"}
+        )
+        st.dataframe(tabla, use_container_width=True)
+        csv = tabla.to_csv(index=False).encode("utf-8")
+        st.download_button(f"Descargar resultados (rango) - {nombre}", csv, f"{nombre}_resultados_rango.csv", "text/csv")
 
