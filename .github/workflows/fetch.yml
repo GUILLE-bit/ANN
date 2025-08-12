@@ -20,9 +20,30 @@ jobs:
 
       - uses: actions/setup-python@v5
         with: { python-version: '3.11' }
-
-      - run: pip install pandas requests
+        
       - run: pip install pandas requests openpyxl
+      - run: pip install pandas requests
+      
+    - name: List files
+  run: |
+    pwd
+    ls -lah
+    ls -lah data || true
+
+- name: Probe historico.xlsx
+  run: |
+    python - <<'PY'
+    import pandas as pd, sys
+    try:
+        df = pd.read_excel("data/historico.xlsx")
+        print("[ok] historico.xlsx leído")
+        print("Columnas:", list(df.columns))
+        print(df.head(5).to_string(index=False))
+    except Exception as e:
+        print("[err] No se pudo leer data/historico.xlsx:", e)
+        sys.exit(0)
+    PY
+
       - name: Run fetch
         run: python fetch_meteobahia.py
 
