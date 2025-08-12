@@ -101,7 +101,7 @@ fuente = st.sidebar.radio("Elegí la fuente", ["Automático (CSV público)", "Su
 st.sidebar.header("Configuración")
 umbral_usuario = st.sidebar.number_input(
     "Umbral de EMEAC para 100%",
-    min_value=1.2, max_value=3.0, value=2.90, step=0.01, format="%.2f"
+    min_value=1.2, max_value=3.0, value=2.70, step=0.01, format="%.2f"
 )
 
 # Botón para forzar recarga de datos cacheados
