@@ -10,7 +10,7 @@ OUT.parent.mkdir(parents=True, exist_ok=True)
 
 HEADERS = {
     "User-Agent": ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                   "AppleWebKit/537.36 (KHTML, like Gecko) "
+                   "AppleWebKit/537.36 (KHTML, como Gecko) "
                    "Chrome/125.0.0.0 Safari/537.36"),
     "Accept": "application/xml,text/xml;q=0.9,*/*;q=0.8",
     "Referer": "https://meteobahia.com.ar/",
@@ -64,3 +64,4 @@ if __name__ == "__main__":
     df = parse_daily(xmlb)
     df.to_csv(OUT, index=False)
     print(f"OK -> {OUT} ({len(df)} filas)")
+
