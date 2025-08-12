@@ -22,7 +22,7 @@ jobs:
         with: { python-version: '3.11' }
 
       - run: pip install pandas requests
-
+      - run: pip install pandas requests openpyxl
       - name: Run fetch
         run: python fetch_meteobahia.py
 
