@@ -5,20 +5,46 @@ import pandas as pd
 from pathlib import Path
 import plotly.graph_objects as go
 
-st.set_page_config(page_title="PREDICCION EMERGENCIA AGRICOLA LOLIUM SP", layout="wide")
+st.set_page_config(
+    page_title="PREDICCION EMERGENCIA AGRICOLA LOLIUM SP",
+    layout="wide",
+    page_icon="🌾"
+)
 
-# =================== Modelo ANN ===================
+# 👉 Estilos responsivos para pantallas chicas
+st.markdown("""
+<style>
+@media (max-width: 640px){
+  .block-container { padding: 0.8rem 0.6rem; }
+  header[data-testid="stHeader"] { height: 3rem; }
+  [data-testid="stSidebarNav"] { font-size: 0.95rem; }
+  div[data-testid="stDataFrame"] { font-size: 0.95rem; }
+  h1, h2, h3 { margin: 0.25rem 0 0.6rem 0; }
+}
+/* Ocultar footer si molesta */
+footer {visibility: hidden;}
+</style>
+""", unsafe_allow_html=True)
+
+# =================== Modelo ANN (corregido) ===================
 class PracticalANNModel:
     def __init__(self, IW, bias_IW, LW, bias_out, low=0.02, medium=0.079):
-        self.IW = IW
-        self.bias_IW = bias_IW
-        self.LW = LW
-        self.bias_out = bias_out
+        """
+        IW: (hidden, inputs)
+        bias_IW: (hidden,)
+        LW: (hidden,) o (1, hidden)
+        bias_out: escalar o (1,)
+        """
+        self.IW = np.asarray(IW)
+        self.bias_IW = np.asarray(bias_IW).reshape(-1)
+        LW = np.asarray(LW)
+        self.LW = LW.reshape(-1) if LW.ndim == 2 else LW  # vectorizar si viene (1, hidden)
+        self.bias_out = float(np.asarray(bias_out).reshape(1))
         # Orden esperado: [Julian_days, TMAX, TMIN, Prec]
-        self.input_min = np.array([1, 0, -7, 0])
-        self.input_max = np.array([300, 41, 25.5, 84])
-        self.low_thr = low
-        self.med_thr = medium
+        self.input_min = np.array([1, 0, -7, 0], dtype=float)
+        self.input_max = np.array([300, 41, 25.5, 84], dtype=float)
+        self.low_thr = float(low)
+        self.med_thr = float(medium)
 
     def tansig(self, x):
         return np.tanh(x)
@@ -27,14 +53,15 @@ class PracticalANNModel:
         return 2 * (X_real - self.input_min) / (self.input_max - self.input_min) - 1
 
     def desnormalizar_salida(self, y_norm, ymin=-1, ymax=1):
-        # Mapea de [-1, 1] a [0, 1]
+        # [-1,1] -> [0,1]
         return (y_norm - ymin) / (ymax - ymin)
 
     def _predict_single(self, x_norm):
-        z1 = self.IW.T @ x_norm + self.bias_IW
+        # IW: (hidden, inputs); x_norm: (inputs,)
+        z1 = self.IW @ x_norm + self.bias_IW
         a1 = self.tansig(z1)
-        z2 = self.LW @ a1 + self.bias_out
-        return self.tansig(z2)
+        z2 = np.dot(self.LW, a1) + self.bias_out
+        return self.tansig(z2)  # salida de la red en [-1, 1]
 
     def _clasificar(self, valor):
         if valor < self.low_thr:
@@ -45,18 +72,14 @@ class PracticalANNModel:
             return "Alto"
 
     def predict(self, X_real):
-        X_norm = self.normalize_input(X_real)
-        emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
-        emerrel_desnorm = self.desnormalizar_salida(emerrel_pred)
-        emerrel_cumsum = np.cumsum(emerrel_desnorm)
-        valor_max_emeac = 8.05
-        emer_ac = emerrel_cumsum / valor_max_emeac
-        emerrel_diff = np.diff(emer_ac, prepend=0)
-
-        riesgo = np.array([self._clasificar(v) for v in emerrel_diff])
-
+        X_norm = self.normalize_input(X_real.astype(float))
+        y_norm = np.array([self._predict_single(x) for x in X_norm], dtype=float).reshape(-1)
+        emerrel_daily = self.desnormalizar_salida(y_norm)  # [0,1] diario
+        riesgo = np.array([self._clasificar(v) for v in emerrel_daily])
+        emerrel_cumsum = np.cumsum(emerrel_daily)
         return pd.DataFrame({
-            "EMERREL(0-1)": emerrel_diff,
+            "EMERREL(0-1)": emerrel_daily,
+            "EMERREL acumulado": emerrel_cumsum,
             "Nivel_Emergencia_relativa": riesgo
         })
 
@@ -69,7 +92,7 @@ def load_public_csv():
     last_err = None
     for url in (CSV_URL_PAGES, CSV_URL_RAW):
         try:
-            df = pd.read_csv(url, parse_dates=["Fecha"])
+            df = pd.read_csv(url, parse_dates=["Fecha"], usecols=["Fecha", "Julian_days", "TMAX", "TMIN", "Prec"])
             req = {"Fecha", "Julian_days", "TMAX", "TMIN", "Prec"}
             faltan = req - set(df.columns)
             if faltan:
@@ -118,6 +141,10 @@ umbral_usuario = st.sidebar.number_input(
 st.sidebar.header("Validaciones")
 mostrar_fuera_rango = st.sidebar.checkbox("Avisar datos fuera de rango de entrenamiento", value=False)
 
+st.sidebar.header("Visualización")
+modo_movil = st.sidebar.toggle("📱 Modo móvil (optimiza gráficos y tablas)", value=False)
+mostrar_ma5 = st.sidebar.toggle("📈 Mostrar media móvil (MA5)", value=True)
+
 # Botón para forzar recarga de datos cacheados
 if st.sidebar.button("Forzar recarga de datos"):
     st.cache_data.clear()
@@ -136,7 +163,7 @@ except FileNotFoundError as e:
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
 # =================== Obtener DataFrames ===================
-dfs = []  # lista de (nombre, df)
+dfs: list[tuple[str, pd.DataFrame]] = []  # lista de (nombre, df)
 
 if fuente == "Automático (CSV público)":
     try:
@@ -154,7 +181,11 @@ else:
     )
     if uploaded_files:
         for file in uploaded_files:
-            df_up = pd.read_excel(file)
+            try:
+                df_up = pd.read_excel(file)
+            except Exception as e:
+                st.warning(f"{file.name}: no se pudo leer. Detalle: {e}")
+                continue
             ok, msg = validar_columnas(df_up)
             if not ok:
                 st.warning(f"{file.name}: {msg}")
@@ -166,7 +197,7 @@ else:
             if bad:
                 st.warning(f"{file.name}: {bad} filas con valores inválidos fueron excluidas.")
                 df_up = df_up.dropna(subset=cols)
-
+            # Si falta Fecha, sintetizarla con el año actual
             if "Fecha" not in df_up.columns:
                 year = pd.Timestamp.now().year
                 df_up["Fecha"] = pd.to_datetime(f"{year}-01-01") + pd.to_timedelta(df_up["Julian_days"] - 1, unit="D")
@@ -195,6 +226,7 @@ if dfs:
         pred = modelo.predict(X_real)
         pred["Fecha"] = fechas
         pred["Julian_days"] = df["Julian_days"]
+        # Asegurar acumulado (si no confiás en el devuelto por el modelo)
         pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
         pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
 
@@ -250,36 +282,31 @@ if dfs:
             x=pred_vis["Fecha"],
             y=pred_vis["EMERREL(0-1)"],
             marker=dict(color=colores_vis.tolist()),
-            hovertemplate=(
-                "Fecha: %{x|%d-%b-%Y}<br>"
-                "EMERREL: %{y:.3f}<br>"
-                "Nivel: %{customdata}"
-            ),
+            hovertemplate=("Fecha: %{x|%d-%b-%Y}<br>EMERREL: %{y:.3f}<br>Nivel: %{customdata}"),
             customdata=pred_vis["Nivel_Emergencia_relativa"],
             name="EMERREL (0-1)",
         )
 
-        # Línea media móvil 5 días
-        fig_er.add_trace(go.Scatter(
-            x=pred_vis["Fecha"],
-            y=pred_vis["EMERREL_MA5_rango"],
-            mode="lines",
-            name="Media móvil 5 días (rango)",
-            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>MA5: %{y:.3f}<extra></extra>"
-        ))
-
-        # Área celeste claro bajo la media móvil
-        fig_er.add_trace(go.Scatter(
-            x=pred_vis["Fecha"],
-            y=pred_vis["EMERREL_MA5_rango"],
-            mode="lines",
-            line=dict(width=0),
-            fill="tozeroy",
-            fillcolor="rgba(135, 206, 250, 0.3)",  # Celeste claro translúcido
-            name="Área MA5",
-            hoverinfo="skip",
-            showlegend=False
-        ))
+        # Línea + área MA5 (opcional)
+        if mostrar_ma5:
+            fig_er.add_trace(go.Scatter(
+                x=pred_vis["Fecha"],
+                y=pred_vis["EMERREL_MA5_rango"],
+                mode="lines",
+                name="Media móvil 5 días (rango)",
+                hovertemplate="Fecha: %{x|%d-%b-%Y}<br>MA5: %{y:.3f}<extra></extra>"
+            ))
+            fig_er.add_trace(go.Scatter(
+                x=pred_vis["Fecha"],
+                y=pred_vis["EMERREL_MA5_rango"],
+                mode="lines",
+                line=dict(width=0),
+                fill="tozeroy",
+                fillcolor="rgba(135, 206, 250, 0.3)",  # Celeste claro translúcido
+                name="Área MA5",
+                hoverinfo="skip",
+                showlegend=False
+            ))
 
         # Líneas de referencia de niveles (Bajo / Medio) + leyenda para Alto
         low_thr = float(modelo.low_thr)
@@ -316,10 +343,12 @@ if dfs:
             yaxis_title="EMERREL (0-1)",
             hovermode="x unified",
             legend_title="Referencias",
-            height=650  # altura aumentada
+            margin=dict(l=8, r=8, t=40, b=8),
+            height=440 if modo_movil else 650
         )
-        fig_er.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
-        fig_er.update_yaxes(rangemode="tozero")
+        fig_er.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b",
+                            tickfont=dict(size=10 if modo_movil else 12))
+        fig_er.update_yaxes(rangemode="tozero", tickfont=dict(size=10 if modo_movil else 12))
 
         st.plotly_chart(fig_er, use_container_width=True, theme="streamlit")
 
@@ -388,9 +417,12 @@ if dfs:
             yaxis=dict(range=[0, 100]),
             hovermode="x unified",
             legend_title="Referencias",
-            height=600  # altura aumentada
+            margin=dict(l=8, r=8, t=40, b=8),
+            height=420 if modo_movil else 600
         )
-        fig.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
+        fig.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b",
+                         tickfont=dict(size=10 if modo_movil else 12))
+        fig.update_yaxes(tickfont=dict(size=10 if modo_movil else 12))
 
         st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
@@ -403,6 +435,14 @@ if dfs:
                 col_emeac: "EMEAC (%)"
             }
         )
-        st.dataframe(tabla, use_container_width=True)
+        st.dataframe(
+            tabla,
+            use_container_width=True,
+            height=(360 if modo_movil else 520),
+            hide_index=True
+        )
         csv = tabla.to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar resultados (rango) - {nombre}", csv, f"{nombre}_resultados_rango.csv", "text/csv")
+else:
+    st.info("Elegí una fuente de datos para comenzar.")
+
