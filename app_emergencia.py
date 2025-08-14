@@ -26,42 +26,85 @@ footer {visibility: hidden;}
 </style>
 """, unsafe_allow_html=True)
 
-# =================== Modelo ANN (corregido) ===================
+# =================== Modelo ANN (robusto) ===================
 class PracticalANNModel:
     def __init__(self, IW, bias_IW, LW, bias_out, low=0.02, medium=0.079):
         """
-        IW: (hidden, inputs)
-        bias_IW: (hidden,)
-        LW: (hidden,) o (1, hidden)
-        bias_out: escalar o (1,)
+        Normaliza pesos a:
+          IW -> (hidden, inputs)
+          LW -> (hidden,)
+          bias_IW -> (hidden,)
+          bias_out -> float
+        Acepta entradas típicas de MATLAB/NumPy donde IW/LW pueden venir transpuestos.
         """
-        self.IW = np.asarray(IW)
-        self.bias_IW = np.asarray(bias_IW).reshape(-1)
-        LW = np.asarray(LW)
-        self.LW = LW.reshape(-1) if LW.ndim == 2 else LW  # vectorizar si viene (1, hidden)
-        self.bias_out = float(np.asarray(bias_out).reshape(1))
-        # Orden esperado: [Julian_days, TMAX, TMIN, Prec]
+        # Config del modelo
         self.input_min = np.array([1, 0, -7, 0], dtype=float)
         self.input_max = np.array([300, 41, 25.5, 84], dtype=float)
+        self.input_dim = 4
         self.low_thr = float(low)
         self.med_thr = float(medium)
 
-    def tansig(self, x):
+        # Arrays
+        IW = np.asarray(IW, dtype=float)
+        LW = np.asarray(LW, dtype=float)
+        bIW = np.asarray(bias_IW, dtype=float)
+        bOut = np.asarray(bias_out, dtype=float)
+
+        # --- IW -> (hidden, inputs) ---
+        if IW.ndim != 2:
+            raise ValueError(f"IW debe ser 2D. Forma recibida: {IW.shape}")
+        if IW.shape[1] == self.input_dim:
+            self.IW = IW
+        elif IW.shape[0] == self.input_dim:
+            self.IW = IW.T
+        else:
+            raise ValueError(
+                f"Forma de IW incompatible. Esperaba (*,{self.input_dim}) o ({self.input_dim},*). Recibida: {IW.shape}"
+            )
+        hidden = self.IW.shape[0]
+
+        # --- bias_IW -> (hidden,) ---
+        if bIW.size != hidden:
+            raise ValueError(f"bias_IW tamaño {bIW.size} != hidden {hidden}. Forma: {bIW.shape}")
+        self.bias_IW = bIW.reshape(-1)
+
+        # --- LW -> (hidden,) ---
+        if LW.ndim == 1:
+            if LW.size != hidden:
+                raise ValueError(f"LW tamaño {LW.size} != hidden {hidden}. Forma: {LW.shape}")
+            self.LW = LW
+        elif LW.ndim == 2:
+            if LW.shape == (1, hidden) or LW.shape == (hidden, 1):
+                self.LW = LW.reshape(-1)
+            else:
+                raise ValueError(f"Forma de LW incompatible con hidden={hidden}. Recibida: {LW.shape}")
+        else:
+            raise ValueError(f"LW debe ser 1D o 2D. Forma: {LW.shape}")
+
+        # --- bias_out -> escalar ---
+        self.bias_out = float(bOut.reshape(1))
+
+    # ---- Auxiliares ----
+    @staticmethod
+    def tansig(x):
         return np.tanh(x)
 
     def normalize_input(self, X_real):
+        X_real = np.asarray(X_real, dtype=float)
         return 2 * (X_real - self.input_min) / (self.input_max - self.input_min) - 1
 
-    def desnormalizar_salida(self, y_norm, ymin=-1, ymax=1):
+    @staticmethod
+    def desnormalizar_salida(y_norm, ymin=-1, ymax=1):
         # [-1,1] -> [0,1]
         return (y_norm - ymin) / (ymax - ymin)
 
-    def _predict_single(self, x_norm):
-        # IW: (hidden, inputs); x_norm: (inputs,)
-        z1 = self.IW @ x_norm + self.bias_IW
-        a1 = self.tansig(z1)
-        z2 = np.dot(self.LW, a1) + self.bias_out
-        return self.tansig(z2)  # salida de la red en [-1, 1]
+    def _forward_hidden(self, x_norm):
+        # IW: (hidden, inputs), bias_IW: (hidden,)
+        return self.tansig(self.IW @ x_norm + self.bias_IW)
+
+    def _forward_out(self, a1):
+        # LW: (hidden,), bias_out: escalar
+        return self.tansig(np.dot(self.LW, a1) + self.bias_out)
 
     def _clasificar(self, valor):
         if valor < self.low_thr:
@@ -72,9 +115,13 @@ class PracticalANNModel:
             return "Alto"
 
     def predict(self, X_real):
-        X_norm = self.normalize_input(X_real.astype(float))
-        y_norm = np.array([self._predict_single(x) for x in X_norm], dtype=float).reshape(-1)
-        emerrel_daily = self.desnormalizar_salida(y_norm)  # [0,1] diario
+        X_real = np.asarray(X_real, dtype=float)
+        if X_real.ndim != 2 or X_real.shape[1] != self.input_dim:
+            raise ValueError(f"X_real debe ser (n, {self.input_dim}). Forma: {X_real.shape}")
+
+        X_norm = self.normalize_input(X_real)
+        y_norm = np.array([self._forward_out(self._forward_hidden(x)) for x in X_norm], dtype=float).reshape(-1)
+        emerrel_daily = self.desnormalizar_salida(y_norm)  # [0,1]
         riesgo = np.array([self._clasificar(v) for v in emerrel_daily])
         emerrel_cumsum = np.cumsum(emerrel_daily)
         return pd.DataFrame({
@@ -92,7 +139,11 @@ def load_public_csv():
     last_err = None
     for url in (CSV_URL_PAGES, CSV_URL_RAW):
         try:
-            df = pd.read_csv(url, parse_dates=["Fecha"], usecols=["Fecha", "Julian_days", "TMAX", "TMIN", "Prec"])
+            df = pd.read_csv(
+                url,
+                parse_dates=["Fecha"],
+                usecols=["Fecha", "Julian_days", "TMAX", "TMIN", "Prec"]
+            )
             req = {"Fecha", "Julian_days", "TMAX", "TMIN", "Prec"}
             faltan = req - set(df.columns)
             if faltan:
@@ -162,8 +213,11 @@ except FileNotFoundError as e:
 
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
+# Diagnóstico de shapes (útil si algo falla)
+st.caption(f"Pesos → IW: {modelo.IW.shape} · LW: {modelo.LW.shape} · bias_IW: {modelo.bias_IW.shape} · bias_out: escalar")
+
 # =================== Obtener DataFrames ===================
-dfs: list[tuple[str, pd.DataFrame]] = []  # lista de (nombre, df)
+dfs: list[tuple[str, pd.DataFrame]] = []
 
 if fuente == "Automático (CSV público)":
     try:
@@ -190,14 +244,12 @@ else:
             if not ok:
                 st.warning(f"{file.name}: {msg}")
                 continue
-            # Coerción a numérico por robustez
             cols = ["Julian_days", "TMAX", "TMIN", "Prec"]
             df_up[cols] = df_up[cols].apply(pd.to_numeric, errors="coerce")
             bad = df_up[cols].isna().any(axis=1).sum()
             if bad:
                 st.warning(f"{file.name}: {bad} filas con valores inválidos fueron excluidas.")
                 df_up = df_up.dropna(subset=cols)
-            # Si falta Fecha, sintetizarla con el año actual
             if "Fecha" not in df_up.columns:
                 year = pd.Timestamp.now().year
                 df_up["Fecha"] = pd.to_datetime(f"{year}-01-01") + pd.to_timedelta(df_up["Julian_days"] - 1, unit="D")
@@ -226,7 +278,8 @@ if dfs:
         pred = modelo.predict(X_real)
         pred["Fecha"] = fechas
         pred["Julian_days"] = df["Julian_days"]
-        # Asegurar acumulado (si no confiás en el devuelto por el modelo)
+
+        # Asegurar acumulado
         pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
         pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
 
@@ -246,7 +299,7 @@ if dfs:
             yr = int(st.sidebar.selectbox(
                 "Año a mostrar (reinicio 1/feb → 1/sep)",
                 sorted(years),
-                key=f"year_select_{nombre}"  # clave única por dataset
+                key=f"year_select_{nombre}"
             ))
 
         fecha_inicio_rango = pd.Timestamp(year=yr, month=2, day=1)
@@ -272,12 +325,10 @@ if dfs:
         pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
-        # --------- Gráfico 1: EMERGENCIA RELATIVA DIARIA (Plotly interactivo) ---------
+        # --------- Gráfico 1: EMERGENCIA RELATIVA DIARIA ---------
         st.subheader("EMERGENCIA RELATIVA DIARIA")
-
         fig_er = go.Figure()
 
-        # Barras EMERREL(0-1)
         fig_er.add_bar(
             x=pred_vis["Fecha"],
             y=pred_vis["EMERREL(0-1)"],
@@ -287,7 +338,6 @@ if dfs:
             name="EMERREL (0-1)",
         )
 
-        # Línea + área MA5 (opcional)
         if mostrar_ma5:
             fig_er.add_trace(go.Scatter(
                 x=pred_vis["Fecha"],
@@ -302,16 +352,14 @@ if dfs:
                 mode="lines",
                 line=dict(width=0),
                 fill="tozeroy",
-                fillcolor="rgba(135, 206, 250, 0.3)",  # Celeste claro translúcido
+                fillcolor="rgba(135, 206, 250, 0.3)",
                 name="Área MA5",
                 hoverinfo="skip",
                 showlegend=False
             ))
 
-        # Líneas de referencia de niveles (Bajo / Medio) + leyenda para Alto
         low_thr = float(modelo.low_thr)
         med_thr = float(modelo.med_thr)
-
         fig_er.add_trace(go.Scatter(
             x=[fecha_inicio_rango, fecha_fin_rango],
             y=[low_thr, low_thr],
@@ -352,12 +400,10 @@ if dfs:
 
         st.plotly_chart(fig_er, use_container_width=True, theme="streamlit")
 
-        # --------- Gráfico 2: EMEAC (rango) - Plotly interactivo ---------
+        # --------- Gráfico 2: EMEAC (rango) ---------
         st.subheader("EMERGENCIA ACUMULADA DIARIA")
-
         fig = go.Figure()
 
-        # Banda entre máximo y mínimo (usar fill entre trazos)
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - máximo (rango)"],
@@ -375,8 +421,6 @@ if dfs:
             name="Mínimo (reiniciado)",
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Mínimo: %{y:.1f}%<extra></extra>"
         ))
-
-        # Línea umbral ajustable
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - ajustable (rango)"],
@@ -385,8 +429,6 @@ if dfs:
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Ajustable: %{y:.1f}%<extra></extra>",
             line=dict(width=2.5)
         ))
-
-        # Línea umbral mínimo
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - mínimo (rango)"],
@@ -395,8 +437,6 @@ if dfs:
             line=dict(dash="dash", width=1.5),
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Mínimo: %{y:.1f}%<extra></extra>"
         ))
-
-        # Línea umbral máximo
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - máximo (rango)"],
@@ -405,8 +445,6 @@ if dfs:
             line=dict(dash="dash", width=1.5),
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Máximo: %{y:.1f}%<extra></extra>"
         ))
-
-        # Líneas horizontales 25, 50, 75, 90 %
         for nivel in [25, 50, 75, 90]:
             fig.add_hline(y=nivel, line_dash="dash", opacity=0.6, annotation_text=f"{nivel}%")
 
@@ -426,14 +464,11 @@ if dfs:
 
         st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
-        # --------- Tabla y descarga (Fecha, Julian_days, EMEAC (%) y Nivel de EMERREL) ---------
+        # --------- Tabla y descarga ---------
         st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
         col_emeac = "EMEAC (%) - ajustable (rango)" if "EMEAC (%) - ajustable (rango)" in pred_vis.columns else "EMEAC (%) - ajustable"
         tabla = pred_vis[["Fecha", "Julian_days", "Nivel_Emergencia_relativa", col_emeac]].rename(
-            columns={
-                "Nivel_Emergencia_relativa": "Nivel de EMERREL",
-                col_emeac: "EMEAC (%)"
-            }
+            columns={"Nivel_Emergencia_relativa": "Nivel de EMERREL", col_emeac: "EMEAC (%)"}
         )
         st.dataframe(
             tabla,
