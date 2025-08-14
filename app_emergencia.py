@@ -10,14 +10,16 @@ st.set_page_config(page_title="PREDICCION EMERGENCIA AGRICOLA LOLIUM SP", layout
 
 # =================== Modelo ANN ===================
 class PracticalANNModel:
-    def __init__(self, IW, bias_IW, LW, bias_out):
+    def __init__(self, IW, bias_IW, LW, bias_out, low=0.02, medium=0.079):
         self.IW = IW
         self.bias_IW = bias_IW
         self.LW = LW
         self.bias_out = bias_out
-        # Orden esperado por este script: [Julian_days, TMAX, TMIN, Prec]
+        # Orden esperado: [Julian_days, TMAX, TMIN, Prec]
         self.input_min = np.array([1, 0, -7, 0])
         self.input_max = np.array([300, 41, 25.5, 84])
+        self.low_thr = low
+        self.med_thr = medium
 
     def tansig(self, x):
         return np.tanh(x)
@@ -25,7 +27,8 @@ class PracticalANNModel:
     def normalize_input(self, X_real):
         return 2 * (X_real - self.input_min) / (self.input_max - self.input_min) - 1
 
-    def desnormalize_output(self, y_norm, ymin=-1, ymax=1):
+    def desnormalizar_salida(self, y_norm, ymin=-1, ymax=1):
+        # Mapea de [-1, 1] a [0, 1]
         return (y_norm - ymin) / (ymax - ymin)
 
     def _predict_single(self, x_norm):
@@ -34,24 +37,24 @@ class PracticalANNModel:
         z2 = self.LW @ a1 + self.bias_out
         return self.tansig(z2)
 
+    def _clasificar(self, valor):
+        if valor < self.low_thr:
+            return "Bajo"
+        elif valor <= self.med_thr:
+            return "Medio"
+        else:
+            return "Alto"
+
     def predict(self, X_real):
         X_norm = self.normalize_input(X_real)
         emerrel_pred = np.array([self._predict_single(x) for x in X_norm])
-        emerrel_desnorm = self.desnormalize_output(emerrel_pred)
+        emerrel_desnorm = self.desnormalizar_salida(emerrel_pred)
         emerrel_cumsum = np.cumsum(emerrel_desnorm)
         valor_max_emeac = 8.05
         emer_ac = emerrel_cumsum / valor_max_emeac
         emerrel_diff = np.diff(emer_ac, prepend=0)
 
-        def clasificar(valor):
-            if valor < 0.02:
-                return "Bajo"
-            elif valor <= 0.079:
-                return "Medio"
-            else:
-                return "Alto"
-
-        riesgo = np.array([clasificar(v) for v in emerrel_diff])
+        riesgo = np.array([self._clasificar(v) for v in emerrel_diff])
 
         return pd.DataFrame({
             "EMERREL(0-1)": emerrel_diff,
@@ -93,6 +96,14 @@ def detectar_fuera_rango(X_real: np.ndarray, input_min: np.ndarray, input_max: n
     out = (X_real < input_min) | (X_real > input_max)
     return bool(np.any(out))
 
+@st.cache_data(show_spinner=False)
+def load_weights(base_dir: Path):
+    IW = np.load(base_dir / "IW.npy")
+    bias_IW = np.load(base_dir / "bias_IW.npy")
+    LW = np.load(base_dir / "LW.npy")
+    bias_out = np.load(base_dir / "bias_out.npy")
+    return IW, bias_IW, LW, bias_out
+
 # =================== UI ===================
 st.title("PREDICCION EMERGENCIA AGRICOLA LOLIUM SP")
 
@@ -105,19 +116,22 @@ umbral_usuario = st.sidebar.number_input(
     min_value=1.2, max_value=3.0, value=2.70, step=0.01, format="%.2f"
 )
 
+st.sidebar.header("Validaciones")
+mostrar_fuera_rango = st.sidebar.checkbox("Avisar datos fuera de rango de entrenamiento", value=False)
+
 # Botón para forzar recarga de datos cacheados
 if st.sidebar.button("Forzar recarga de datos"):
     st.cache_data.clear()
 
 # Cargar pesos del modelo
-base = Path(__file__).parent
 try:
-    IW = np.load(base / "IW.npy")
-    bias_IW = np.load(base / "bias_IW.npy")
-    LW = np.load(base / "LW.npy")
-    bias_out = np.load(base / "bias_out.npy")
+    base = Path(__file__).parent if "__file__" in globals() else Path.cwd()
+    IW, bias_IW, LW, bias_out = load_weights(base)
 except FileNotFoundError as e:
-    st.error(f"Error al cargar archivos del modelo: {e}")
+    st.error(
+        "Error al cargar archivos del modelo (IW.npy, bias_IW.npy, LW.npy, bias_out.npy). "
+        f"Ruta buscada: {base}. Detalle: {e}"
+    )
     st.stop()
 
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
@@ -146,6 +160,14 @@ else:
             if not ok:
                 st.warning(f"{file.name}: {msg}")
                 continue
+            # Coerción a numérico por robustez
+            cols = ["Julian_days", "TMAX", "TMIN", "Prec"]
+            df_up[cols] = df_up[cols].apply(pd.to_numeric, errors="coerce")
+            bad = df_up[cols].isna().any(axis=1).sum()
+            if bad:
+                st.warning(f"{file.name}: {bad} filas con valores inválidos fueron excluidas.")
+                df_up = df_up.dropna(subset=cols)
+
             if "Fecha" not in df_up.columns:
                 year = pd.Timestamp.now().year
                 df_up["Fecha"] = pd.to_datetime(f"{year}-01-01") + pd.to_timedelta(df_up["Julian_days"] - 1, unit="D")
@@ -168,9 +190,8 @@ if dfs:
         X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
         fechas = pd.to_datetime(df["Fecha"])
 
-        # (Opcional) aviso fuera de rango desactivado
-        # if detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
-        #     st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
+        if mostrar_fuera_rango and detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
+            st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento ({modelo.input_min} a {modelo.input_max}).")
 
         pred = modelo.predict(X_real)
         pred["Fecha"] = fechas
@@ -191,7 +212,11 @@ if dfs:
         if len(years) == 1:
             yr = int(years[0])
         else:
-            yr = int(st.sidebar.selectbox("Año a mostrar (reinicio 1/feb → 1/sep)", sorted(years)))
+            yr = int(st.sidebar.selectbox(
+                "Año a mostrar (reinicio 1/feb → 1/sep)",
+                sorted(years),
+                key=f"year_select_{nombre}"  # clave única por dataset
+            ))
 
         fecha_inicio_rango = pd.Timestamp(year=yr, month=2, day=1)
         fecha_fin_rango    = pd.Timestamp(year=yr, month=9, day=1)
@@ -216,11 +241,29 @@ if dfs:
         pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
-        # --------- Gráfico EMERREL (rango) ---------
+        # --------- Gráfico 1: EMERREL (rango) con área bajo media móvil ---------
         st.subheader("EMERGENCIA RELATIVA DIARIA")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
+
+        # Barras de colores según nivel de riesgo
         ax_er.bar(pred_vis["Fecha"], pred_vis["EMERREL(0-1)"], color=colores_vis)
-        ax_er.plot(pred_vis["Fecha"], pred_vis["EMERREL_MA5_rango"], linewidth=2.2, label="Media móvil 5 días (rango)")
+
+        # Media móvil (azul) + área cerrada (celeste claro)
+        ax_er.plot(
+            pred_vis["Fecha"],
+            pred_vis["EMERREL_MA5_rango"],
+            linewidth=2.2,
+            color="blue",
+            label="Media móvil 5 días (rango)"
+        )
+        ax_er.fill_between(
+            pred_vis["Fecha"],
+            0,  # límite inferior (área cerrada desde cero)
+            pred_vis["EMERREL_MA5_rango"],
+            color="skyblue",
+            alpha=0.3
+        )
+
         ax_er.legend(loc="upper right")
         ax_er.set_title("EMERGENCIA RELATIVA DIARIA")
         ax_er.set_xlabel("Fecha")
@@ -232,19 +275,36 @@ if dfs:
         plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
         st.pyplot(fig_er)
 
-        # --------- Gráfico EMEAC (rango) ---------
+        # --------- Gráfico 2: EMEAC (rango) ---------
         st.subheader("EMERGENCIA ACUMULADA DIARIA")
         fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
-        ax.fill_between(pred_vis["Fecha"],
-                        pred_vis["EMEAC (%) - mínimo (rango)"],
-                        pred_vis["EMEAC (%) - máximo (rango)"],
-                        alpha=0.4, label="Rango entre mínimo y máximo (reiniciado)")
-        ax.plot(pred_vis["Fecha"], pred_vis["EMEAC (%) - ajustable (rango)"], linewidth=2.5,
-                label="Umbral ajustable (reiniciado)")
-        ax.plot(pred_vis["Fecha"], pred_vis["EMEAC (%) - mínimo (rango)"], linestyle='--', linewidth=1.5,
-                label="Umbral mínimo (reiniciado)")
-        ax.plot(pred_vis["Fecha"], pred_vis["EMEAC (%) - máximo (rango)"], linestyle='--', linewidth=1.5,
-                label="Umbral máximo (reiniciado)")
+        ax.fill_between(
+            pred_vis["Fecha"],
+            pred_vis["EMEAC (%) - mínimo (rango)"],
+            pred_vis["EMEAC (%) - máximo (rango)"],
+            alpha=0.4,
+            label="Rango entre mínimo y máximo (reiniciado)"
+        )
+        ax.plot(
+            pred_vis["Fecha"],
+            pred_vis["EMEAC (%) - ajustable (rango)"],
+            linewidth=2.5,
+            label="Umbral ajustable (reiniciado)"
+        )
+        ax.plot(
+            pred_vis["Fecha"],
+            pred_vis["EMEAC (%) - mínimo (rango)"],
+            linestyle='--',
+            linewidth=1.5,
+            label="Umbral mínimo (reiniciado)"
+        )
+        ax.plot(
+            pred_vis["Fecha"],
+            pred_vis["EMEAC (%) - máximo (rango)"],
+            linestyle='--',
+            linewidth=1.5,
+            label="Umbral máximo (reiniciado)"
+        )
 
         # Líneas horizontales + leyenda sin duplicados
         niveles = [25, 50, 75, 90]
