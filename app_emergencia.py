@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from pathlib import Path
 
-st.set_page_config(page_title="Predicción de Emergencia Agrícola con ANN", layout="wide")
+st.set_page_config(page_title="PREDICCION EMERGENCIA AGRICOLA LOLIUM SP", layout="wide")
 
 # =================== Modelo ANN ===================
 class PracticalANNModel:
