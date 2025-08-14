@@ -15,6 +15,7 @@ class PracticalANNModel:
         self.bias_IW = bias_IW
         self.LW = LW
         self.bias_out = bias_out
+        # Orden esperado por este script: [Julian_days, TMAX, TMIN, Prec]
         self.input_min = np.array([1, 0, -7, 0])
         self.input_max = np.array([300, 41, 25.5, 84])
 
@@ -216,12 +217,12 @@ if dfs:
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
         # --------- Gráfico EMERREL (rango) ---------
-        st.subheader(f"EMERREL (0-1) · {nombre} · {fecha_inicio_rango.date()} → {fecha_fin_rango.date()} (reinicio 1/feb)")
+        st.subheader("EMERGENCIA RELATIVA DIARIA")
         fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
         ax_er.bar(pred_vis["Fecha"], pred_vis["EMERREL(0-1)"], color=colores_vis)
         ax_er.plot(pred_vis["Fecha"], pred_vis["EMERREL_MA5_rango"], linewidth=2.2, label="Media móvil 5 días (rango)")
         ax_er.legend(loc="upper right")
-        ax_er.set_title(f"Emergencia Relativa Diaria (reiniciada 1/feb) - {nombre}")
+        ax_er.set_title("EMERGENCIA RELATIVA DIARIA")
         ax_er.set_xlabel("Fecha")
         ax_er.set_ylabel("EMERREL (0-1)")
         ax_er.grid(True, linestyle="--", alpha=0.5)
@@ -232,7 +233,7 @@ if dfs:
         st.pyplot(fig_er)
 
         # --------- Gráfico EMEAC (rango) ---------
-        st.subheader(f"EMEAC (%) · {nombre} · {fecha_inicio_rango.date()} → {fecha_fin_rango.date()} (reinicio 1/feb)")
+        st.subheader("EMERGENCIA ACUMULADA DIARIA")
         fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
         ax.fill_between(pred_vis["Fecha"],
                         pred_vis["EMEAC (%) - mínimo (rango)"],
@@ -250,7 +251,7 @@ if dfs:
         for nivel in niveles:
             ax.axhline(nivel, linestyle='--', linewidth=1.2, label=f'{nivel}%')
 
-        ax.set_title(f"Progreso EMEAC (%) (reinicio 1/feb) - {nombre}")
+        ax.set_title("EMERGENCIA ACUMULADA DIARIA")
         ax.set_xlabel("Fecha")
         ax.set_ylabel("EMEAC (%)")
         ax.set_ylim(0, 100)
