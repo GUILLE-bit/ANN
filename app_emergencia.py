@@ -94,7 +94,7 @@ def detectar_fuera_rango(X_real: np.ndarray, input_min: np.ndarray, input_max: n
     return bool(np.any(out))
 
 # =================== UI ===================
-st.title("Predicción de Emergencia Agrícola con ANN")
+st.title("PREDICCION EMERGENCIA AGRICOLA LOLIUM SP")
 
 st.sidebar.header("Fuente de datos")
 fuente = st.sidebar.radio("Elegí la fuente", ["Automático (CSV público)", "Subir Excel"])
