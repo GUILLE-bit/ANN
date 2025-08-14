@@ -2,9 +2,8 @@
 import streamlit as st
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
-import matplotlib.dates as mdates
 from pathlib import Path
+import plotly.graph_objects as go
 
 st.set_page_config(page_title="PREDICCION EMERGENCIA AGRICOLA LOLIUM SP", layout="wide")
 
@@ -241,93 +240,117 @@ if dfs:
         pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
-        # --------- Gráfico 1: EMERREL (rango) con área bajo media móvil ---------
+        # --------- Gráfico 1: EMERGENCIA RELATIVA DIARIA (Plotly interactivo) ---------
         st.subheader("EMERGENCIA RELATIVA DIARIA")
-        fig_er, ax_er = plt.subplots(figsize=(14, 5), dpi=150)
 
-        # Barras de colores según nivel de riesgo
-        ax_er.bar(pred_vis["Fecha"], pred_vis["EMERREL(0-1)"], color=colores_vis)
+        colores_list = colores_vis.tolist()
+        fig_er = go.Figure()
 
-        # Media móvil (azul) + área cerrada (celeste claro)
-        ax_er.plot(
-            pred_vis["Fecha"],
-            pred_vis["EMERREL_MA5_rango"],
-            linewidth=2.2,
-            color="blue",
-            label="Media móvil 5 días (rango)"
-        )
-        ax_er.fill_between(
-            pred_vis["Fecha"],
-            0,  # límite inferior (área cerrada desde cero)
-            pred_vis["EMERREL_MA5_rango"],
-            color="skyblue",
-            alpha=0.3
+        # Barras EMERREL(0-1)
+        fig_er.add_bar(
+            x=pred_vis["Fecha"],
+            y=pred_vis["EMERREL(0-1)"],
+            marker=dict(color=colores_list),
+            hovertemplate=(
+                "Fecha: %{x|%d-%b-%Y}<br>"
+                "EMERREL: %{y:.3f}<br>"
+                "Nivel: %{customdata}"
+            ),
+            customdata=pred_vis["Nivel_Emergencia_relativa"],
+            name="EMERREL (0-1)",
         )
 
-        ax_er.legend(loc="upper right")
-        ax_er.set_title("EMERGENCIA RELATIVA DIARIA")
-        ax_er.set_xlabel("Fecha")
-        ax_er.set_ylabel("EMERREL (0-1)")
-        ax_er.grid(True, linestyle="--", alpha=0.5)
-        ax_er.set_xlim(fecha_inicio_rango, fecha_fin_rango)
-        ax_er.xaxis.set_major_locator(mdates.MonthLocator())
-        ax_er.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
-        plt.setp(ax_er.xaxis.get_majorticklabels(), rotation=0)
-        st.pyplot(fig_er)
+        # Línea media móvil 5 días
+        fig_er.add_trace(go.Scatter(
+            x=pred_vis["Fecha"],
+            y=pred_vis["EMERREL_MA5_rango"],
+            mode="lines",
+            name="Media móvil 5 días (rango)",
+            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>MA5: %{y:.3f}<extra></extra>"
+        ))
 
-        # --------- Gráfico 2: EMEAC (rango) ---------
+        # Área bajo la media móvil (fill to zero)
+        fig_er.add_trace(go.Scatter(
+            x=pred_vis["Fecha"],
+            y=pred_vis["EMERREL_MA5_rango"],
+            mode="lines",
+            line=dict(width=0),
+            fill="tozeroy",
+            name="Área MA5",
+            hoverinfo="skip",
+            showlegend=False
+        ))
+
+        fig_er.update_layout(
+            title="EMERGENCIA RELATIVA DIARIA",
+            xaxis_title="Fecha",
+            yaxis_title="EMERREL (0-1)",
+            hovermode="x unified",
+            margin=dict(l=10, r=10, t=40, b=10)
+        )
+        fig_er.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
+        fig_er.update_yaxes(rangemode="tozero")
+
+        st.plotly_chart(fig_er, use_container_width=True, theme="streamlit")
+
+        # --------- Gráfico 2: EMEAC (rango) - Plotly interactivo ---------
         st.subheader("EMERGENCIA ACUMULADA DIARIA")
-        fig, ax = plt.subplots(figsize=(14, 5), dpi=150)
-        ax.fill_between(
-            pred_vis["Fecha"],
-            pred_vis["EMEAC (%) - mínimo (rango)"],
-            pred_vis["EMEAC (%) - máximo (rango)"],
-            alpha=0.4,
-            label="Rango entre mínimo y máximo (reiniciado)"
-        )
-        ax.plot(
-            pred_vis["Fecha"],
-            pred_vis["EMEAC (%) - ajustable (rango)"],
-            linewidth=2.5,
-            label="Umbral ajustable (reiniciado)"
-        )
-        ax.plot(
-            pred_vis["Fecha"],
-            pred_vis["EMEAC (%) - mínimo (rango)"],
-            linestyle='--',
-            linewidth=1.5,
-            label="Umbral mínimo (reiniciado)"
-        )
-        ax.plot(
-            pred_vis["Fecha"],
-            pred_vis["EMEAC (%) - máximo (rango)"],
-            linestyle='--',
-            linewidth=1.5,
-            label="Umbral máximo (reiniciado)"
-        )
 
-        # Líneas horizontales + leyenda sin duplicados
-        niveles = [25, 50, 75, 90]
-        for nivel in niveles:
-            ax.axhline(nivel, linestyle='--', linewidth=1.2, label=f'{nivel}%')
+        fig = go.Figure()
 
-        ax.set_title("EMERGENCIA ACUMULADA DIARIA")
-        ax.set_xlabel("Fecha")
-        ax.set_ylabel("EMEAC (%)")
-        ax.set_ylim(0, 100)
-        ax.set_xlim(fecha_inicio_rango, fecha_fin_rango)
-        ax.grid(True, linestyle="--", alpha=0.5)
-        ax.xaxis.set_major_locator(mdates.MonthLocator())
-        ax.xaxis.set_major_formatter(mdates.DateFormatter('%b'))
+        # Banda entre máximo y mínimo (usar fill entre trazos)
+        fig.add_trace(go.Scatter(
+            x=pred_vis["Fecha"],
+            y=pred_vis["EMEAC (%) - máximo (rango)"],
+            mode="lines",
+            line=dict(width=0),
+            name="Rango entre mínimo y máximo (reiniciado)",
+            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Máximo: %{y:.1f}%<extra></extra>"
+        ))
+        fig.add_trace(go.Scatter(
+            x=pred_vis["Fecha"],
+            y=pred_vis["EMEAC (%) - mínimo (rango)"],
+            mode="lines",
+            line=dict(width=0),
+            fill="tonexty",
+            name="",
+            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Mínimo: %{y:.1f}%<extra></extra>",
+            showlegend=False
+        ))
 
-        handles, labels = ax.get_legend_handles_labels()
-        seen = set(); handles_dedup, labels_dedup = [], []
-        for h, l in zip(handles, labels):
-            if l not in seen:
-                handles_dedup.append(h); labels_dedup.append(l); seen.add(l)
-        ax.legend(handles_dedup, labels_dedup, title="Referencias", loc="lower right")
-        plt.setp(ax.xaxis.get_majorticklabels(), rotation=0)
-        st.pyplot(fig)
+        # Líneas de umbrales
+        fig.add_trace(go.Scatter(
+            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - ajustable (rango)"],
+            mode="lines", name="Umbral ajustable (reiniciado)",
+            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Ajustable: %{y:.1f}%<extra></extra>"
+        ))
+        fig.add_trace(go.Scatter(
+            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - mínimo (rango)"],
+            mode="lines", name="Umbral mínimo (reiniciado)", line=dict(dash="dash"),
+            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Mínimo: %{y:.1f}%<extra></extra>"
+        ))
+        fig.add_trace(go.Scatter(
+            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - máximo (rango)"],
+            mode="lines", name="Umbral máximo (reiniciado)", line=dict(dash="dash"),
+            hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Máximo: %{y:.1f}%<extra></extra>"
+        ))
+
+        # Líneas horizontales 25, 50, 75, 90 %
+        for nivel in [25, 50, 75, 90]:
+            fig.add_hline(y=nivel, line_dash="dash", opacity=0.6)
+
+        fig.update_layout(
+            title="EMERGENCIA ACUMULADA DIARIA",
+            xaxis_title="Fecha",
+            yaxis_title="EMEAC (%)",
+            yaxis=dict(range=[0, 100]),
+            hovermode="x unified",
+            legend_title="Referencias",
+            margin=dict(l=10, r=10, t=40, b=10)
+        )
+        fig.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
+
+        st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
         # --------- Tabla y descarga (Fecha, Julian_days, EMEAC (%) y Nivel de EMERREL) ---------
         st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
