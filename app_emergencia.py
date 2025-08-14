@@ -14,7 +14,6 @@ class PracticalANNModel:
         self.bias_IW = bias_IW
         self.LW = LW
         self.bias_out = bias_out
-        # Orden esperado: [Julian_days, TMAX, TMIN, Prec]
         self.input_min = np.array([1, 0, -7, 0])
         self.input_max = np.array([300, 41, 25.5, 84])
         self.low_thr = low
@@ -51,9 +50,7 @@ class PracticalANNModel:
         valor_max_emeac = 8.05
         emer_ac = emerrel_cumsum / valor_max_emeac
         emerrel_diff = np.diff(emer_ac, prepend=0)
-
         riesgo = np.array([self._clasificar(v) for v in emerrel_diff])
-
         return pd.DataFrame({
             "EMERREL(0-1)": emerrel_diff,
             "Nivel_Emergencia_relativa": riesgo
@@ -72,12 +69,12 @@ def load_public_csv():
             req = {"Fecha", "Julian_days", "TMAX", "TMIN", "Prec"}
             faltan = req - set(df.columns)
             if faltan:
-                raise ValueError(f"Faltan columnas en CSV público: {', '.join(sorted(faltan))}")
+                raise ValueError(f"Faltan columnas: {', '.join(sorted(faltan))}")
             df = df.sort_values("Fecha").reset_index(drop=True)
             return df, url
         except Exception as e:
             last_err = e
-    raise RuntimeError(f"No pude leer el CSV ni desde Pages ni desde Raw. Último error: {last_err}")
+    raise RuntimeError(f"No pude leer el CSV. Último error: {last_err}")
 
 def validar_columnas(df: pd.DataFrame) -> tuple[bool, str]:
     req = {"Julian_days", "TMAX", "TMIN", "Prec"}
@@ -87,8 +84,7 @@ def validar_columnas(df: pd.DataFrame) -> tuple[bool, str]:
     return True, ""
 
 def obtener_colores(niveles: pd.Series):
-    m = niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"})
-    return m.fillna("gray")
+    return niveles.map({"Bajo": "green", "Medio": "orange", "Alto": "red"}).fillna("gray")
 
 def detectar_fuera_rango(X_real: np.ndarray, input_min: np.ndarray, input_max: np.ndarray) -> bool:
     out = (X_real < input_min) | (X_real > input_max)
@@ -96,27 +92,21 @@ def detectar_fuera_rango(X_real: np.ndarray, input_min: np.ndarray, input_max: n
 
 @st.cache_data(show_spinner=False)
 def load_weights(base_dir: Path):
-    IW = np.load(base_dir / "IW.npy")
-    bias_IW = np.load(base_dir / "bias_IW.npy")
-    LW = np.load(base_dir / "LW.npy")
-    bias_out = np.load(base_dir / "bias_out.npy")
-    return IW, bias_IW, LW, bias_out
+    return (
+        np.load(base_dir / "IW.npy"),
+        np.load(base_dir / "bias_IW.npy"),
+        np.load(base_dir / "LW.npy"),
+        np.load(base_dir / "bias_out.npy")
+    )
 
 # =================== UI ===================
 st.title("PREDICCION EMERGENCIA AGRICOLA LOLIUM SP")
-
 st.sidebar.header("Fuente de datos")
 fuente = st.sidebar.radio("Elegí la fuente", ["Automático (CSV público)", "Subir Excel"])
-
 st.sidebar.header("Configuración")
-umbral_usuario = st.sidebar.number_input(
-    "Umbral de EMEAC para 100%",
-    min_value=1.2, max_value=3.0, value=2.70, step=0.01, format="%.2f"
-)
-
+umbral_usuario = st.sidebar.number_input("Umbral de EMEAC para 100%", min_value=1.2, max_value=3.0, value=2.70, step=0.01)
 st.sidebar.header("Validaciones")
-mostrar_fuera_rango = st.sidebar.checkbox("Avisar datos fuera de rango de entrenamiento", value=False)
-
+mostrar_fuera_rango = st.sidebar.checkbox("Avisar datos fuera de rango", value=False)
 if st.sidebar.button("Forzar recarga de datos"):
     st.cache_data.clear()
 
@@ -124,29 +114,22 @@ try:
     base = Path(__file__).parent if "__file__" in globals() else Path.cwd()
     IW, bias_IW, LW, bias_out = load_weights(base)
 except FileNotFoundError as e:
-    st.error(
-        "Error al cargar archivos del modelo (IW.npy, bias_IW.npy, LW.npy, bias_out.npy). "
-        f"Ruta buscada: {base}. Detalle: {e}"
-    )
+    st.error(f"Error al cargar archivos del modelo. {e}")
     st.stop()
 
 modelo = PracticalANNModel(IW, bias_IW, LW, bias_out)
 
 # =================== Carga de datos ===================
 dfs = []
-
 if fuente == "Automático (CSV público)":
     try:
         df_auto, url_usada = load_public_csv()
         dfs.append(("MeteoBahia_CSV", df_auto))
-        st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
+        st.success(f"CSV cargado desde: {url_usada}")
     except Exception as e:
-        st.error(f"No se pudo leer el CSV público. Detalle: {e}")
+        st.error(f"No se pudo leer el CSV. {e}")
 else:
-    uploaded_files = st.file_uploader(
-        "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
-        type=["xlsx"], accept_multiple_files=True
-    )
+    uploaded_files = st.file_uploader("Sube archivos Excel (.xlsx)", type=["xlsx"], accept_multiple_files=True)
     if uploaded_files:
         for file in uploaded_files:
             df_up = pd.read_excel(file)
@@ -161,7 +144,7 @@ else:
                 df_up["Fecha"] = pd.to_datetime(f"{year}-01-01") + pd.to_timedelta(df_up["Julian_days"] - 1, unit="D")
             dfs.append((Path(file.name).stem, df_up))
     else:
-        st.info("Sube al menos un archivo .xlsx para iniciar el análisis.")
+        st.info("Sube al menos un archivo .xlsx.")
 
 # =================== Procesamiento y gráficos ===================
 if dfs:
@@ -170,86 +153,52 @@ if dfs:
         if not ok:
             st.warning(f"{nombre}: {msg}")
             continue
-
         df = df.sort_values("Julian_days").reset_index(drop=True)
-        X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(dtype=float)
+        X_real = df[["Julian_days", "TMAX", "TMIN", "Prec"]].to_numpy(float)
         fechas = pd.to_datetime(df["Fecha"])
 
         if mostrar_fuera_rango and detectar_fuera_rango(X_real, modelo.input_min, modelo.input_max):
-            st.info(f"⚠️ {nombre}: hay valores fuera del rango de entrenamiento.")
+            st.info(f"⚠️ {nombre}: hay valores fuera de rango.")
 
         pred = modelo.predict(X_real)
         pred["Fecha"] = fechas
         pred["Julian_days"] = df["Julian_days"]
         pred["EMERREL acumulado"] = pred["EMERREL(0-1)"].cumsum()
-        pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
-
-        pred["EMEAC (0-1) - mínimo"] = pred["EMERREL acumulado"] / 1.2
-        pred["EMEAC (0-1) - máximo"] = pred["EMERREL acumulado"] / 3.0
-        pred["EMEAC (0-1) - ajustable"] = pred["EMERREL acumulado"] / umbral_usuario
-        pred["EMEAC (%) - mínimo"] = pred["EMEAC (0-1) - mínimo"] * 100
-        pred["EMEAC (%) - máximo"] = pred["EMEAC (0-1) - máximo"] * 100
-        pred["EMEAC (%) - ajustable"] = pred["EMEAC (0-1) - ajustable"] * 100
+        pred["EMERREL_MA5"] = pred["EMERREL(0-1)"].rolling(5, 1).mean()
+        pred["EMEAC (%) - ajustable"] = pred["EMERREL acumulado"] / umbral_usuario * 100
 
         years = pred["Fecha"].dt.year.unique()
         yr = int(years[0]) if len(years) == 1 else int(st.sidebar.selectbox(
-            "Año a mostrar (reinicio 1/feb → 1/sep)", sorted(years), key=f"year_select_{nombre}"
+            "Año a mostrar", sorted(years), key=f"year_select_{nombre}"
         ))
-
         fecha_inicio_rango = pd.Timestamp(year=yr, month=2, day=1)
         fecha_fin_rango    = pd.Timestamp(year=yr, month=9, day=1)
-        mask = (pred["Fecha"] >= fecha_inicio_rango) & (pred["Fecha"] <= fecha_fin_rango)
-        pred_vis = pred.loc[mask].copy()
-
-        if pred_vis.empty:
-            st.warning(f"No hay datos entre {fecha_inicio_rango.date()} y {fecha_fin_rango.date()} para {nombre}.")
-            continue
+        pred_vis = pred[(pred["Fecha"] >= fecha_inicio_rango) & (pred["Fecha"] <= fecha_fin_rango)].copy()
 
         pred_vis["EMERREL acumulado (reiniciado)"] = pred_vis["EMERREL(0-1)"].cumsum()
-        pred_vis["EMEAC (0-1) - mínimo (rango)"]    = pred_vis["EMERREL acumulado (reiniciado)"] / 1.2
-        pred_vis["EMEAC (0-1) - máximo (rango)"]    = pred_vis["EMERREL acumulado (reiniciado)"] / 3.0
-        pred_vis["EMEAC (0-1) - ajustable (rango)"] = pred_vis["EMERREL acumulado (reiniciado)"] / umbral_usuario
-        pred_vis["EMEAC (%) - mínimo (rango)"]      = pred_vis["EMEAC (0-1) - mínimo (rango)"] * 100
-        pred_vis["EMEAC (%) - máximo (rango)"]      = pred_vis["EMEAC (0-1) - máximo (rango)"] * 100
-        pred_vis["EMEAC (%) - ajustable (rango)"]   = pred_vis["EMEAC (0-1) - ajustable (rango)"] * 100
-        pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(window=5, min_periods=1).mean()
+        pred_vis["EMEAC (%) - ajustable (rango)"] = pred_vis["EMERREL acumulado (reiniciado)"] / umbral_usuario * 100
+        pred_vis["EMERREL_MA5_rango"] = pred_vis["EMERREL(0-1)"].rolling(5, 1).mean()
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
-        # --- Gráfico 1 ---
-        st.subheader("EMERGENCIA RELATIVA DIARIA")
+        # --------- Gráfico 1 ---------
         fig_er = go.Figure()
-
         fig_er.add_bar(
-            x=pred_vis["Fecha"],
-            y=pred_vis["EMERREL(0-1)"],
+            x=pred_vis["Fecha"], y=pred_vis["EMERREL(0-1)"],
             marker=dict(color=colores_vis.tolist()),
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>EMERREL: %{y:.3f}<br>Nivel: %{customdata}",
-            customdata=pred_vis["Nivel_Emergencia_relativa"],
-            name="EMERREL (0-1)",
+            customdata=pred_vis["Nivel_Emergencia_relativa"], name="EMERREL (0-1)"
         )
-
         fig_er.add_trace(go.Scatter(
-            x=pred_vis["Fecha"],
-            y=pred_vis["EMERREL_MA5_rango"],
-            mode="lines",
-            name="Media móvil 5 días (rango)",
+            x=pred_vis["Fecha"], y=pred_vis["EMERREL_MA5_rango"],
+            mode="lines", name="Media móvil 5 días",
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>MA5: %{y:.3f}<extra></extra>"
         ))
-
-        # Área celeste claro bajo la media móvil
         fig_er.add_trace(go.Scatter(
-            x=pred_vis["Fecha"],
-            y=pred_vis["EMERREL_MA5_rango"],
-            mode="lines",
-            line=dict(width=0),
-            fill="tozeroy",
-            fillcolor="rgba(135, 206, 250, 0.3)",  # Celeste claro
-            name="Área MA5",
-            hoverinfo="skip",
-            showlegend=False
+            x=pred_vis["Fecha"], y=pred_vis["EMERREL_MA5_rango"],
+            mode="lines", line=dict(width=0), fill="tozeroy",
+            fillcolor="rgba(135, 206, 250, 0.3)",  # celeste claro
+            name="Área MA5", hoverinfo="skip", showlegend=False
         ))
-
-        # Líneas de referencia de niveles
         low_thr, med_thr = float(modelo.low_thr), float(modelo.med_thr)
         fig_er.add_trace(go.Scatter(
             x=[fecha_inicio_rango, fecha_fin_rango], y=[low_thr, low_thr],
@@ -262,65 +211,31 @@ if dfs:
             name=f"Medio (≤ {med_thr:.3f})", hoverinfo="skip"
         ))
         fig_er.add_trace(go.Scatter(
-            x=[None], y=[None],
-            mode="lines", line=dict(color="red", dash="dot"),
+            x=[None], y=[None], mode="lines",
+            line=dict(color="red", dash="dot"),
             name=f"Alto (> {med_thr:.3f})", hoverinfo="skip"
         ))
-
         fig_er.update_layout(
             title="EMERGENCIA RELATIVA DIARIA",
             xaxis_title="Fecha", yaxis_title="EMERREL (0-1)",
-            hovermode="x unified", legend_title="Referencias"
+            hovermode="x unified", legend_title="Referencias",
+            height=650  # altura aumentada
         )
         fig_er.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
-
         st.plotly_chart(fig_er, use_container_width=True, theme="streamlit")
 
-        # --- Gráfico 2 ---
-        st.subheader("EMERGENCIA ACUMULADA DIARIA")
+        # --------- Gráfico 2 ---------
         fig = go.Figure()
-        fig.add_trace(go.Scatter(
-            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - máximo (rango)"],
-            mode="lines", line=dict(width=0),
-            name="Rango entre mínimo y máximo (reiniciado)"
-        ))
-        fig.add_trace(go.Scatter(
-            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - mínimo (rango)"],
-            mode="lines", line=dict(width=0),
-            fill="tonexty", name="", showlegend=False
-        ))
-        fig.add_trace(go.Scatter(
-            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - ajustable (rango)"],
-            mode="lines", name="Umbral ajustable (reiniciado)"
-        ))
-        fig.add_trace(go.Scatter(
-            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - mínimo (rango)"],
-            mode="lines", name="Umbral mínimo (reiniciado)", line=dict(dash="dash")
-        ))
-        fig.add_trace(go.Scatter(
-            x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - máximo (rango)"],
-            mode="lines", name="Umbral máximo (reiniciado)", line=dict(dash="dash")
-        ))
+        fig.add_trace(go.Scatter(x=pred_vis["Fecha"], y=pred_vis["EMEAC (%) - ajustable (rango)"],
+                                 mode="lines", name="Umbral ajustable"))
         for nivel in [25, 50, 75, 90]:
             fig.add_hline(y=nivel, line_dash="dash", opacity=0.6)
         fig.update_layout(
             title="EMERGENCIA ACUMULADA DIARIA",
             xaxis_title="Fecha", yaxis_title="EMEAC (%)",
-            yaxis=dict(range=[0, 100]), hovermode="x unified", legend_title="Referencias"
+            yaxis=dict(range=[0, 100]), hovermode="x unified",
+            legend_title="Referencias", height=600  # altura aumentada
         )
         fig.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
         st.plotly_chart(fig, use_container_width=True, theme="streamlit")
-
-        # --- Tabla ---
-        st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
-        col_emeac = "EMEAC (%) - ajustable (rango)"
-        tabla = pred_vis[["Fecha", "Julian_days", "Nivel_Emergencia_relativa", col_emeac]].rename(
-            columns={
-                "Nivel_Emergencia_relativa": "Nivel de EMERREL",
-                col_emeac: "EMEAC (%)"
-            }
-        )
-        st.dataframe(tabla, use_container_width=True)
-        csv = tabla.to_csv(index=False).encode("utf-8")
-        st.download_button(f"Descargar resultados (rango) - {nombre}", csv, f"{nombre}_resultados_rango.csv", "text/csv")
 
