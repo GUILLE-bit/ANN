@@ -281,12 +281,45 @@ if dfs:
             showlegend=False
         ))
 
+        # ====== Líneas horizontales de referencia de niveles (con leyenda) ======
+        low_thr = float(modelo.low_thr)
+        med_thr = float(modelo.med_thr)
+
+        # Línea de referencia 'Bajo'
+        fig_er.add_trace(go.Scatter(
+            x=[fecha_inicio_rango, fecha_fin_rango],
+            y=[low_thr, low_thr],
+            mode="lines",
+            line=dict(color="green", dash="dot"),
+            name=f"Bajo (≤ {low_thr:.3f})",
+            hoverinfo="skip"
+        ))
+        # Línea de referencia 'Medio'
+        fig_er.add_trace(go.Scatter(
+            x=[fecha_inicio_rango, fecha_fin_rango],
+            y=[med_thr, med_thr],
+            mode="lines",
+            line=dict(color="orange", dash="dot"),
+            name=f"Medio (≤ {med_thr:.3f})",
+            hoverinfo="skip"
+        ))
+        # Entrada de leyenda para 'Alto' (sin línea fija)
+        fig_er.add_trace(go.Scatter(
+            x=[None], y=[None],
+            mode="lines",
+            line=dict(color="red", dash="dot"),
+            name=f"Alto (> {med_thr:.3f})",
+            hoverinfo="skip",
+            showlegend=True
+        ))
+
         fig_er.update_layout(
             title="EMERGENCIA RELATIVA DIARIA",
             xaxis_title="Fecha",
             yaxis_title="EMERREL (0-1)",
             hovermode="x unified",
-            margin=dict(l=10, r=10, t=40, b=10)
+            margin=dict(l=10, r=10, t=40, b=10),
+            legend_title="Referencias"
         )
         fig_er.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
         fig_er.update_yaxes(rangemode="tozero")
