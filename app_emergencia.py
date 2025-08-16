@@ -241,7 +241,7 @@ if dfs:
         colores_vis = obtener_colores(pred_vis["Nivel_Emergencia_relativa"])
 
         # --------- Gráfico 1: EMERGENCIA RELATIVA DIARIA (Plotly interactivo) ---------
-        st.subheader("EMERGENCIA RELATIVA DIARIA")
+        st.subheader("EMERGENCIA RELATIVA DIARIA - BORDENAVE")
 
         fig_er = go.Figure()
 
@@ -324,7 +324,7 @@ if dfs:
         st.plotly_chart(fig_er, use_container_width=True, theme="streamlit")
 
         # --------- Gráfico 2: EMEAC (rango) - Plotly interactivo ---------
-        st.subheader("EMERGENCIA ACUMULADA DIARIA")
+        st.subheader("EMERGENCIA ACUMULADA DIARIA - BORDENAVE")
 
         fig = go.Figure()
 
