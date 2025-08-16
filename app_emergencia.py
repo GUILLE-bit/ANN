@@ -311,7 +311,7 @@ if dfs:
         ))
 
         fig_er.update_layout(
-            title="EMERGENCIA RELATIVA DIARIA",
+          # title="EMERGENCIA RELATIVA DIARIA",
             xaxis_title="Fecha",
             yaxis_title="EMERREL (0-1)",
             hovermode="x unified",
@@ -382,7 +382,7 @@ if dfs:
             fig.add_hline(y=nivel, line_dash="dash", opacity=0.6, annotation_text=f"{nivel}%")
 
         fig.update_layout(
-            title="EMERGENCIA ACUMULADA DIARIA",
+          # title="EMERGENCIA ACUMULADA DIARIA",
             xaxis_title="Fecha",
             yaxis_title="EMEAC (%)",
             yaxis=dict(range=[0, 100]),
