@@ -62,8 +62,8 @@ class PracticalANNModel:
 
 # =================== Config de fuentes (CSV público) ===================
 # URLs ajustadas al repo que mencionaste (no se muestran en la UI)
-CSV_URL_PAGES = "https://GUILLE-bit.github.io/ANN/meteo_daily.csv"
-CSV_URL_RAW   = "https://raw.githubusercontent.com/GUILLE-bit/ANN/gh-pages/meteo_daily.csv"
+CSV_URL_PAGES = "https://PREDWEEM.github.io/ANN/meteo_daily.csv"
+CSV_URL_RAW   = "https://raw.githubusercontent.com/PREDWEEM/ANN/gh-pages/meteo_daily.csv"
 
 @st.cache_data(ttl=900)  # 15 min
 def load_public_csv():
