@@ -140,15 +140,14 @@ dfs = []  # lista de (nombre, df)
 
 if fuente == "Automático (CSV público)":
     try:
-    df_auto, url_usada = load_public_csv()
-    dfs.append(("MeteoBahia_CSV", df_auto))
-    # Mensajes de fuente y rango ocultos a pedido:
-    # st.caption(f"Fuente CSV primaria: {CSV_URL_PAGES}")
-    # st.caption(f"Fuente CSV alternativa (fallback): {CSV_URL_RAW}")
-    # st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
-except Exception as e:
-    st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
-
+        df_auto, url_usada = load_public_csv()
+        dfs.append(("MeteoBahia_CSV", df_auto))
+        # Mensajes de fuente y rango ocultos a pedido:
+        # st.caption(f"Fuente CSV primaria: {CSV_URL_PAGES}")
+        # st.caption(f"Fuente CSV alternativa (fallback): {CSV_URL_RAW}")
+        # st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
+    except Exception as e:
+        st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
 else:
     uploaded_files = st.file_uploader(
         "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
@@ -313,12 +312,11 @@ if dfs:
         ))
 
         fig_er.update_layout(
-          # title="EMERGENCIA RELATIVA DIARIA",
             xaxis_title="Fecha",
             yaxis_title="EMERREL (0-1)",
             hovermode="x unified",
             legend_title="Referencias",
-            height=650  # altura aumentada
+            height=650
         )
         fig_er.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
         fig_er.update_yaxes(rangemode="tozero")
@@ -384,13 +382,12 @@ if dfs:
             fig.add_hline(y=nivel, line_dash="dash", opacity=0.6, annotation_text=f"{nivel}%")
 
         fig.update_layout(
-          # title="EMERGENCIA ACUMULADA DIARIA",
             xaxis_title="Fecha",
             yaxis_title="EMEAC (%)",
             yaxis=dict(range=[0, 100]),
             hovermode="x unified",
             legend_title="Referencias",
-            height=600  # altura aumentada
+            height=600
         )
         fig.update_xaxes(range=[fecha_inicio_rango, fecha_fin_rango], dtick="M1", tickformat="%b")
 
@@ -408,3 +405,4 @@ if dfs:
         st.dataframe(tabla, use_container_width=True)
         csv = tabla.to_csv(index=False).encode("utf-8")
         st.download_button(f"Descargar resultados (rango) - {nombre}", csv, f"{nombre}_resultados_rango.csv", "text/csv")
+
