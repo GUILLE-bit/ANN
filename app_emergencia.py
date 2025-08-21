@@ -61,8 +61,9 @@ class PracticalANNModel:
         })
 
 # =================== Config de fuentes (CSV público) ===================
-CSV_URL_PAGES = "https://PREDWEEM.github.io/ANN/meteo_daily.csv"
-CSV_URL_RAW   = "https://raw.githubusercontent.com/PREDWEEM/ANN/gh-pages/meteo_daily.csv"
+# URLs ajustadas al repo que mencionaste (no se muestran en la UI)
+CSV_URL_PAGES = "https://GUILLE-bit.github.io/ANN/meteo_daily.csv"
+CSV_URL_RAW   = "https://raw.githubusercontent.com/GUILLE-bit/ANN/gh-pages/meteo_daily.csv"
 
 @st.cache_data(ttl=900)  # 15 min
 def load_public_csv():
@@ -142,11 +143,10 @@ if fuente == "Automático (CSV público)":
     try:
         df_auto, url_usada = load_public_csv()
         dfs.append(("MeteoBahia_CSV", df_auto))
-        # Mensajes de fuente y rango ocultos a pedido:
-        # st.caption(f"Fuente CSV primaria: {CSV_URL_PAGES}")
-        # st.caption(f"Fuente CSV alternativa (fallback): {CSV_URL_RAW}")
-        # st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
+        # NO mostrar nada de la fuente ni del rango (eliminado a pedido)
+        # (antes había st.caption/st.success aquí)
     except Exception as e:
+        # Solo mostramos error si falla la carga
         st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
 else:
     uploaded_files = st.file_uploader(
@@ -246,7 +246,6 @@ if dfs:
 
         fig_er = go.Figure()
 
-        # Barras EMERREL(0-1)
         fig_er.add_bar(
             x=pred_vis["Fecha"],
             y=pred_vis["EMERREL(0-1)"],
@@ -260,7 +259,6 @@ if dfs:
             name="EMERREL (0-1)",
         )
 
-        # Línea media móvil 5 días
         fig_er.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMERREL_MA5_rango"],
@@ -269,20 +267,18 @@ if dfs:
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>MA5: %{y:.3f}<extra></extra>"
         ))
 
-        # Área celeste claro bajo la media móvil
         fig_er.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMERREL_MA5_rango"],
             mode="lines",
             line=dict(width=0),
             fill="tozeroy",
-            fillcolor="rgba(135, 206, 250, 0.3)",  # Celeste claro translúcido
+            fillcolor="rgba(135, 206, 250, 0.3)",
             name="Área MA5",
             hoverinfo="skip",
             showlegend=False
         ))
 
-        # Líneas de referencia de niveles (Bajo / Medio) + leyenda para Alto
         low_thr = float(modelo.low_thr)
         med_thr = float(modelo.med_thr)
 
@@ -328,7 +324,6 @@ if dfs:
 
         fig = go.Figure()
 
-        # Banda entre máximo y mínimo (usar fill entre trazos)
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - máximo (rango)"],
@@ -347,7 +342,6 @@ if dfs:
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Mínimo: %{y:.1f}%<extra></extra>"
         ))
 
-        # Línea umbral ajustable
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - ajustable (rango)"],
@@ -357,7 +351,6 @@ if dfs:
             line=dict(width=2.5)
         ))
 
-        # Línea umbral mínimo
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - mínimo (rango)"],
@@ -367,7 +360,6 @@ if dfs:
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Mínimo: %{y:.1f}%<extra></extra>"
         ))
 
-        # Línea umbral máximo
         fig.add_trace(go.Scatter(
             x=pred_vis["Fecha"],
             y=pred_vis["EMEAC (%) - máximo (rango)"],
@@ -377,7 +369,6 @@ if dfs:
             hovertemplate="Fecha: %{x|%d-%b-%Y}<br>Máximo: %{y:.1f}%<extra></extra>"
         ))
 
-        # Líneas horizontales 25, 50, 75, 90 %
         for nivel in [25, 50, 75, 90]:
             fig.add_hline(y=nivel, line_dash="dash", opacity=0.6, annotation_text=f"{nivel}%")
 
@@ -393,7 +384,7 @@ if dfs:
 
         st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
-        # --------- Tabla y descarga (Fecha, Julian_days, EMEAC (%) y Nivel de EMERREL) ---------
+        # --------- Tabla y descarga ---------
         st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
         col_emeac = "EMEAC (%) - ajustable (rango)" if "EMEAC (%) - ajustable (rango)" in pred_vis.columns else "EMEAC (%) - ajustable"
         tabla = pred_vis[["Fecha", "Julian_days", "Nivel_Emergencia_relativa", col_emeac]].rename(
