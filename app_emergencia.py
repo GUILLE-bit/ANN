@@ -140,13 +140,15 @@ dfs = []  # lista de (nombre, df)
 
 if fuente == "Automático (CSV público)":
     try:
-        df_auto, url_usada = load_public_csv()
-        dfs.append(("MeteoBahia_CSV", df_auto))
-        st.caption(f"Fuente CSV primaria: {CSV_URL_PAGES}")
-        st.caption(f"Fuente CSV alternativa (fallback): {CSV_URL_RAW}")
-        st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
-    except Exception as e:
-        st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
+    df_auto, url_usada = load_public_csv()
+    dfs.append(("MeteoBahia_CSV", df_auto))
+    # Mensajes de fuente y rango ocultos a pedido:
+    # st.caption(f"Fuente CSV primaria: {CSV_URL_PAGES}")
+    # st.caption(f"Fuente CSV alternativa (fallback): {CSV_URL_RAW}")
+    # st.success(f"CSV cargado desde: {url_usada} · Rango: {df_auto['Fecha'].min().date()} → {df_auto['Fecha'].max().date()} · {len(df_auto)} días")
+except Exception as e:
+    st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
+
 else:
     uploaded_files = st.file_uploader(
         "Sube uno o más archivos Excel (.xlsx) con columnas: Julian_days, TMAX, TMIN, Prec",
