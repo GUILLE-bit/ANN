@@ -143,10 +143,8 @@ if fuente == "Automático (CSV público)":
     try:
         df_auto, url_usada = load_public_csv()
         dfs.append(("MeteoBahia_CSV", df_auto))
-        # NO mostrar nada de la fuente ni del rango (eliminado a pedido)
-        # (antes había st.caption/st.success aquí)
+        # NO mostrar nada de la fuente ni del rango
     except Exception as e:
-        # Solo mostramos error si falla la carga
         st.error(f"No se pudo leer el CSV público (Pages ni Raw). Detalle: {e}")
 else:
     uploaded_files = st.file_uploader(
@@ -384,16 +382,36 @@ if dfs:
 
         st.plotly_chart(fig, use_container_width=True, theme="streamlit")
 
-        # --------- Tabla y descarga ---------
+        # --------- Tabla (emojis SOLO en vista) y descarga (texto limpio) ---------
         st.subheader(f"Resultados (1/feb → 1/sep) - {nombre}")
+
         col_emeac = "EMEAC (%) - ajustable (rango)" if "EMEAC (%) - ajustable (rango)" in pred_vis.columns else "EMEAC (%) - ajustable"
-        tabla = pred_vis[["Fecha", "Julian_days", "Nivel_Emergencia_relativa", col_emeac]].rename(
+        tabla_base = pred_vis[["Fecha", "Julian_days", "Nivel_Emergencia_relativa", col_emeac]].rename(
             columns={
+                "Julian_days": "Día juliano",
                 "Nivel_Emergencia_relativa": "Nivel de EMERREL",
                 col_emeac: "EMEAC (%)"
             }
         )
-        st.dataframe(tabla, use_container_width=True)
-        csv = tabla.to_csv(index=False).encode("utf-8")
-        st.download_button(f"Descargar resultados (rango) - {nombre}", csv, f"{nombre}_resultados_rango.csv", "text/csv")
 
+        # Mapa de emojis SOLO para visualización
+        nivel_emoji = {"Bajo": "🟢", "Medio": "🟡", "Alto": "🔴"}
+        nivel_con_emoji = tabla_base["Nivel de EMERREL"].map(lambda x: f"{nivel_emoji.get(x, '')} {x}")
+
+        # Tabla para mostrar (con emoji)
+        tabla_display = tabla_base.copy()
+        tabla_display["Nivel de EMERREL"] = nivel_con_emoji
+
+        # Tabla para exportar (solo texto limpio)
+        tabla_csv = tabla_base.copy()
+
+        st.dataframe(tabla_display, use_container_width=True)
+
+        # Descarga CSV (solo texto limpio en 'Nivel de EMERREL')
+        csv = tabla_csv.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            f"Descargar resultados (rango) - {nombre}",
+            csv,
+            f"{nombre}_resultados_rango.csv",
+            "text/csv"
+        )
